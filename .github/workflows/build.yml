@@ -18,7 +18,7 @@ jobs:
     
     - name: Download miniz
       run: |
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/richgel999/miniz/1.16/miniz.c" -OutFile "libs/miniz.c"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/richgel999/miniz/36089398a05b2fa4b94e7d8c9b45f9d7fb159bb7/miniz.c" -OutFile "libs/miniz.c"
     
     - name: Configure CMake
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
