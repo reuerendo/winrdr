@@ -57,7 +57,8 @@ private:
     std::string format(T&& first, Args&&... args) {
         std::ostringstream oss;
         oss << first;
-        ((oss << " " << args), ...);
+        int dummy[] = {0, ((oss << " " << args), 0)...};
+        (void)dummy;
         return oss.str();
     }
     

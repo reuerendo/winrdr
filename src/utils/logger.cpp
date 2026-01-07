@@ -1,7 +1,7 @@
 #include "logger.h"
 #include <iostream>
-#include <iomanip>
 #include <ctime>
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -84,11 +84,11 @@ std::string Logger::levelToString(Level level) {
 
 std::string Logger::getCurrentTime() {
     auto now = std::time(nullptr);
-    auto tm = *std::localtime(&now);
+    auto tm_ptr = std::localtime(&now);
     
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-    return oss.str();
+    char buffer[64];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_ptr);
+    return std::string(buffer);
 }
 
 } // namespace logger
