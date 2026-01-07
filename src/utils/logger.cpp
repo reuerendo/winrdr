@@ -7,14 +7,12 @@
 #include <windows.h>
 #endif
 
-namespace logger {
-
 Logger& Logger::instance() {
     static Logger inst;
     return inst;
 }
 
-void Logger::init(const std::string& filepath, Level min_level) {
+void Logger::init(const std::string& filepath, LogLevel min_level) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (file_.is_open()) {
@@ -25,21 +23,20 @@ void Logger::init(const std::string& filepath, Level min_level) {
     min_level_ = min_level;
     
     if (file_.is_open()) {
-        log(Level::INFO, __FILE__, __LINE__, "Logger initialized: " + filepath);
+        log(LOG_LEVEL_INFO, __FILE__, __LINE__, "Logger initialized: " + filepath);
     }
     
 #ifdef _WIN32
-    // Включаем UTF-8 в консоли Windows
     SetConsoleOutputCP(CP_UTF8);
 #endif
 }
 
-void Logger::setLevel(Level level) {
+void Logger::setLevel(LogLevel level) {
     std::lock_guard<std::mutex> lock(mutex_);
     min_level_ = level;
 }
 
-void Logger::log(Level level, const char* file, int line, const std::string& message) {
+void Logger::log(LogLevel level, const char* file, int line, const std::string& message) {
     if (level < min_level_) return;
     
     std::lock_guard<std::mutex> lock(mutex_);
@@ -58,37 +55,33 @@ void Logger::log(Level level, const char* file, int line, const std::string& mes
     
     std::string log_line = oss.str();
     
-    // Вывод в файл
     if (file_.is_open()) {
         file_ << log_line << std::endl;
         file_.flush();
     }
     
-    // Вывод в консоль
-    if (level >= Level::WARNING) {
+    if (level >= LOG_LEVEL_WARNING) {
         std::cerr << log_line << std::endl;
     } else {
         std::cout << log_line << std::endl;
     }
 }
 
-std::string Logger::levelToString(Level level) {
+std::string Logger::levelToString(LogLevel level) {
     switch (level) {
-        case Level::DEBUG:   return "DEBUG";
-        case Level::INFO:    return "INFO ";
-        case Level::WARNING: return "WARN ";
-        case Level::ERROR:   return "ERROR";
-        default:             return "?????";
+        case LOG_LEVEL_DEBUG:   return "DEBUG";
+        case LOG_LEVEL_INFO:    return "INFO ";
+        case LOG_LEVEL_WARNING: return "WARN ";
+        case LOG_LEVEL_ERROR:   return "ERROR";
+        default:                return "?????";
     }
 }
 
 std::string Logger::getCurrentTime() {
-    auto now = std::time(nullptr);
-    auto tm_ptr = std::localtime(&now);
+    time_t now = time(NULL);
+    struct tm* tm_ptr = localtime(&now);
     
     char buffer[64];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_ptr);
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_ptr);
     return std::string(buffer);
 }
-
-} // namespace logger
