@@ -1,10 +1,6 @@
 #include "zip_handler.h"
 #include "../utils/logger.h"
-#define MINIZ_NO_STDIO
-#define MINIZ_NO_TIME
-#define MINIZ_NO_ZLIB_APIS
-#define MINIZ_NO_ARCHIVE_APIS
-#define MINIZ_NO_ARCHIVE_WRITING_APIS
+#define MINIZ_HEADER_FILE_ONLY
 #include "../../libs/miniz.c"
 #include <cstring>
 
