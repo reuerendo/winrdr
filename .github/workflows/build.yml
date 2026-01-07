@@ -20,6 +20,7 @@ jobs:
       run: |
         Invoke-WebRequest -Uri "https://github.com/richgel999/miniz/releases/download/2.1.0/miniz-2.1.0.zip" -OutFile "miniz.zip"
         Expand-Archive -Path "miniz.zip" -DestinationPath "libs/miniz_temp"
+        Copy-Item "libs/miniz_temp/miniz.h" "libs/miniz.h"
         Copy-Item "libs/miniz_temp/miniz.c" "libs/miniz.c"
         Remove-Item -Recurse -Force "libs/miniz_temp"
         Remove-Item "miniz.zip"
