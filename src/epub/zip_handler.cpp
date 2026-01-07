@@ -3,7 +3,9 @@
 #define MINIZ_NO_STDIO
 #define MINIZ_NO_TIME
 #define MINIZ_NO_ZLIB_APIS
-#include "../../libs/miniz.h"
+#define MINIZ_NO_ARCHIVE_APIS
+#define MINIZ_NO_ARCHIVE_WRITING_APIS
+#include "../../libs/miniz.c"
 #include <cstring>
 
 namespace epub {
