@@ -189,7 +189,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 // Главная функция
 int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
     // Инициализация логера
-    logger::Logger::instance().init("epub_reader.log", logger::Level::DEBUG);
+    Logger::instance().init("epub_reader.log", LOG_LEVEL_DEBUG);
     LOG_INFO("=== EPUB Reader started ===");
     
     // Регистрация класса окна
