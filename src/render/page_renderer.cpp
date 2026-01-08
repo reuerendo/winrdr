@@ -31,6 +31,11 @@ void PageRenderer::setText(const std::string& text) {
     pages_.clear();
     
     LOG_DEBUG("Text set, length:", text_.length(), "chars");
+    
+    // Сразу рассчитываем страницы если viewport установлен
+    if (viewport_width_ > 0 && viewport_height_ > 0) {
+        calculatePages();
+    }
 }
 
 void PageRenderer::setViewport(int width, int height, int margin) {
