@@ -6,7 +6,6 @@
 #include "render/page_renderer.h"
 #include "utils/logger.h"
 
-// Глобальные переменные
 epub::EpubParser g_parser;
 PageRenderer g_renderer;
 size_t g_current_chapter = 0;
