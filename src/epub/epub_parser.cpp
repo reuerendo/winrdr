@@ -240,8 +240,31 @@ std::string EpubParser::extractTextFromHTML(const std::string& html) {
 std::string EpubParser::getChapterText(size_t index) {
     if (index >= spine_.size()) return "";
     
-    std::string path = content_dir_ + spine_[index].href;
+    std::string path = spine_[index].href;
+    
+    // Нормализуем путь - убираем ../ в начале
+    while (path.find("../") == 0) {
+        path = path.substr(3);
+    }
+    
+    // Добавляем content_dir только если путь относительный
+    if (!content_dir_.empty() && path.find(content_dir_) != 0) {
+        path = content_dir_ + path;
+    }
+    
+    LOG_DEBUG("Loading chapter from path:", path);
+    
     std::string html = zip_.extractTextFile(path);
+    
+    if (html.empty()) {
+        LOG_WARNING("Failed to extract chapter, trying without content_dir");
+        // Пробуем без content_dir
+        path = spine_[index].href;
+        while (path.find("../") == 0) {
+            path = path.substr(3);
+        }
+        html = zip_.extractTextFile(path);
+    }
     
     return extractTextFromHTML(html);
 }
