@@ -3,11 +3,12 @@
 #include <string>
 #include <vector>
 #include "epub/epub_parser.h"
+#include "render/page_renderer.h"
 #include "utils/logger.h"
 
 // Глобальные переменные
 epub::EpubParser g_parser;
-std::wstring g_current_text;
+PageRenderer g_renderer;
 size_t g_current_chapter = 0;
 HWND g_hwnd_main = nullptr;
 
@@ -40,9 +41,10 @@ void LoadChapter(size_t index) {
     
     g_current_chapter = index;
     std::string text = g_parser.getChapterText(index);
-    g_current_text = utf8_to_wstring(text);
     
     LOG_DEBUG("Chapter text length:", text.length(), "bytes");
+    
+    g_renderer.setText(text);
     
     if (g_hwnd_main) {
         InvalidateRect(g_hwnd_main, nullptr, TRUE);
@@ -51,7 +53,9 @@ void LoadChapter(size_t index) {
         auto meta = g_parser.getMetadata();
         std::wstring title = utf8_to_wstring(meta.title) + 
                             L" - Глава " + std::to_wstring(index + 1) + 
-                            L" / " + std::to_wstring(g_parser.getChapterCount());
+                            L" / " + std::to_wstring(g_parser.getChapterCount()) +
+                            L" - Страница " + std::to_wstring(g_renderer.getCurrentPage() + 1) +
+                            L" / " + std::to_wstring(g_renderer.getPageCount());
         SetWindowTextW(g_hwnd_main, title.c_str());
     }
 }
@@ -100,11 +104,54 @@ void PrevChapter() {
     }
 }
 
+// Следующая страница
+void NextPage() {
+    if (g_renderer.nextPage()) {
+        InvalidateRect(g_hwnd_main, nullptr, TRUE);
+        
+        // Обновляем заголовок
+        auto meta = g_parser.getMetadata();
+        std::wstring title = utf8_to_wstring(meta.title) + 
+                            L" - Глава " + std::to_wstring(g_current_chapter + 1) + 
+                            L" / " + std::to_wstring(g_parser.getChapterCount()) +
+                            L" - Страница " + std::to_wstring(g_renderer.getCurrentPage() + 1) +
+                            L" / " + std::to_wstring(g_renderer.getPageCount());
+        SetWindowTextW(g_hwnd_main, title.c_str());
+    } else {
+        // Переход к следующей главе
+        NextChapter();
+    }
+}
+
+// Предыдущая страница
+void PrevPage() {
+    if (g_renderer.prevPage()) {
+        InvalidateRect(g_hwnd_main, nullptr, TRUE);
+        
+        // Обновляем заголовок
+        auto meta = g_parser.getMetadata();
+        std::wstring title = utf8_to_wstring(meta.title) + 
+                            L" - Глава " + std::to_wstring(g_current_chapter + 1) + 
+                            L" / " + std::to_wstring(g_parser.getChapterCount()) +
+                            L" - Страница " + std::to_wstring(g_renderer.getCurrentPage() + 1) +
+                            L" / " + std::to_wstring(g_renderer.getPageCount());
+        SetWindowTextW(g_hwnd_main, title.c_str());
+    } else {
+        // Переход к предыдущей главе
+        PrevChapter();
+    }
+}
+
 // Обработчик сообщений окна
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
         case WM_CREATE:
             g_hwnd_main = hwnd;
+            // Инициализируем рендерер
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            g_renderer.setViewport(rect.right, rect.bottom, 40);
+            g_renderer.setFont(L"Arial", 18);
             break;
             
         case WM_PAINT: {
@@ -118,31 +165,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             FillRect(hdc, &rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
             
             // Рисуем текст
-            if (!g_current_text.empty()) {
-                SetBkMode(hdc, TRANSPARENT);
-                SetTextColor(hdc, RGB(0, 0, 0));
-                
-                HFONT hfont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                    DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-                HFONT old_font = (HFONT)SelectObject(hdc, hfont);
-                
-                rect.left += 20;
-                rect.top += 20;
-                rect.right -= 20;
-                rect.bottom -= 20;
-                
-                DrawTextW(hdc, g_current_text.c_str(), -1, &rect, 
-                         DT_LEFT | DT_TOP | DT_WORDBREAK);
-                
-                SelectObject(hdc, old_font);
-                DeleteObject(hfont);
+            if (g_renderer.getPageCount() > 0) {
+                g_renderer.render(hdc);
             } else {
                 // Если книга не загружена
                 SetBkMode(hdc, TRANSPARENT);
                 SetTextColor(hdc, RGB(128, 128, 128));
-                const wchar_t* msg = L"Нажмите Ctrl+O для открытия EPUB файла";
-                DrawTextW(hdc, msg, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                const wchar_t* msg = L"Нажмите Ctrl+O для открытия EPUB файла\n\n"
+                                    L"Навигация:\n"
+                                    L"→ / Page Down - следующая страница\n"
+                                    L"← / Page Up - предыдущая страница\n"
+                                    L"Ctrl+→ - следующая глава\n"
+                                    L"Ctrl+← - предыдущая глава";
+                DrawTextW(hdc, msg, -1, &rect, DT_CENTER | DT_VCENTER);
             }
             
             EndPaint(hwnd, &ps);
@@ -152,12 +187,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         case WM_KEYDOWN:
             switch (wparam) {
                 case VK_RIGHT:
-                case VK_NEXT: // Page Down
-                    NextChapter();
+                    if (GetKeyState(VK_CONTROL) & 0x8000) {
+                        NextChapter();
+                    } else {
+                        NextPage();
+                    }
                     break;
                 case VK_LEFT:
+                    if (GetKeyState(VK_CONTROL) & 0x8000) {
+                        PrevChapter();
+                    } else {
+                        PrevPage();
+                    }
+                    break;
+                case VK_NEXT: // Page Down
+                    NextPage();
+                    break;
                 case VK_PRIOR: // Page Up
-                    PrevChapter();
+                    PrevPage();
                     break;
                 case 'O':
                     if (GetKeyState(VK_CONTROL) & 0x8000) {
@@ -167,6 +214,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
             break;
             
+        case WM_SIZE: {
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            g_renderer.setViewport(rect.right, rect.bottom, 40);
+            InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        }
+        
         case WM_COMMAND:
             switch (LOWORD(wparam)) {
                 case 1: // Открыть
