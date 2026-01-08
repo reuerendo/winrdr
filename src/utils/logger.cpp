@@ -22,13 +22,26 @@ void Logger::init(const std::string& filepath, LogLevel min_level) {
     file_.open(filepath, std::ios::out | std::ios::app);
     min_level_ = min_level;
     
-    if (file_.is_open()) {
-        log(LOG_LEVEL_INFO, __FILE__, __LINE__, "Logger initialized: " + filepath);
-    }
-    
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
+    
+    if (file_.is_open()) {
+        std::string filename = __FILE__;
+        size_t pos = filename.find_last_of("/\\");
+        if (pos != std::string::npos) {
+            filename = filename.substr(pos + 1);
+        }
+        
+        std::ostringstream oss;
+        oss << "[" << getCurrentTime() << "] "
+            << "[" << levelToString(LOG_LEVEL_INFO) << "] "
+            << "[" << filename << ":" << __LINE__ << "] "
+            << "Logger initialized: " << filepath;
+        
+        file_ << oss.str() << std::endl;
+        file_.flush();
+    }
 }
 
 void Logger::setLevel(LogLevel level) {
