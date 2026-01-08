@@ -16,12 +16,14 @@ set(SOURCES
     src/main.cpp
     src/epub/epub_parser.cpp
     src/epub/zip_handler.cpp
+    src/render/page_renderer.cpp
     src/utils/logger.cpp
 )
 
 set(HEADERS
     src/epub/epub_parser.h
     src/epub/zip_handler.h
+    src/render/page_renderer.h
     src/utils/logger.h
 )
 
