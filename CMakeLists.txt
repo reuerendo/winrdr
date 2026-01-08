@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Настройки для Windows
 if(WIN32)
     add_definitions(-DUNICODE -D_UNICODE)
+    # UTF-8 для исходников
+    add_compile_options(/utf-8)
 endif()
 
 # Исходные файлы
@@ -24,6 +26,11 @@ set(HEADERS
 )
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
+
+# Подключаем manifest
+if(WIN32)
+    target_sources(${PROJECT_NAME} PRIVATE app.manifest)
+endif()
 
 # Библиотеки Windows
 if(WIN32)
