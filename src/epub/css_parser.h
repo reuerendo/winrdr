@@ -34,8 +34,8 @@ private:
     void parseRule(const std::string& selector, const std::string& properties);
     void parseProperty(const std::string& name, const std::string& value, CSSStyle& style);
     
-    std::string trim(const std::string& str);
-    std::string toLowerCase(const std::string& str);
+    std::string trim(const std::string& str) const;
+    std::string toLowerCase(const std::string& str) const;
     
     std::unordered_map<std::string, CSSStyle> styles_;
 };

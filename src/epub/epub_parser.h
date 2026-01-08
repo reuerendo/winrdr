@@ -44,6 +44,7 @@ public:
     size_t findChapterByHref(const std::string& href) const;
 
 private:
+    void mapTOCToSpine();
     bool parseContainer();
     bool parseOPF();
     bool parseTOC();

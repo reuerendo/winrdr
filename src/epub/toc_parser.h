@@ -30,9 +30,9 @@ private:
     void parseNavPoint(const std::string& xml, size_t& pos, int level);
     void parseNavList(const std::string& html, size_t& pos, int level);
     
-    std::string extractText(const std::string& xml, const std::string& tag);
-    std::string extractAttribute(const std::string& tag_content, const std::string& attr);
-    std::string normalizeHref(const std::string& href);
+    std::string extractText(const std::string& xml, const std::string& tag) const;
+    std::string extractAttribute(const std::string& tag_content, const std::string& attr) const;
+    std::string normalizeHref(const std::string& href) const;
     
     std::vector<TOCItem> items_;
 };

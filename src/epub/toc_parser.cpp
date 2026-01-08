@@ -157,7 +157,7 @@ void TOCParser::parseNavList(const std::string& html, size_t& pos, int level) {
     pos = ol_end + 5;
 }
 
-std::string TOCParser::extractText(const std::string& xml, const std::string& tag) {
+std::string TOCParser::extractText(const std::string& xml, const std::string& tag) const {
     std::string open_tag = "<" + tag;
     size_t start = xml.find(open_tag);
     if (start == std::string::npos) return "";
@@ -174,7 +174,7 @@ std::string TOCParser::extractText(const std::string& xml, const std::string& ta
 }
 
 std::string TOCParser::extractAttribute(const std::string& tag_content, 
-                                       const std::string& attr) {
+                                       const std::string& attr) const {
     std::string search = attr + "=\"";
     size_t pos = tag_content.find(search);
     if (pos != std::string::npos) {
@@ -187,7 +187,7 @@ std::string TOCParser::extractAttribute(const std::string& tag_content,
     return "";
 }
 
-std::string TOCParser::normalizeHref(const std::string& href) {
+std::string TOCParser::normalizeHref(const std::string& href) const {
     // Remove anchor
     size_t anchor = href.find('#');
     if (anchor != std::string::npos) {

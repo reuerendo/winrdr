@@ -134,7 +134,7 @@ void CSSParser::parseProperty(const std::string& name, const std::string& value,
     }
 }
 
-std::string CSSParser::trim(const std::string& str) {
+std::string CSSParser::trim(const std::string& str) const {
     size_t start = 0;
     while (start < str.length() && std::isspace(str[start])) {
         start++;
@@ -148,7 +148,7 @@ std::string CSSParser::trim(const std::string& str) {
     return str.substr(start, end - start);
 }
 
-std::string CSSParser::toLowerCase(const std::string& str) {
+std::string CSSParser::toLowerCase(const std::string& str) const {
     std::string result = str;
     std::transform(result.begin(), result.end(), result.begin(), 
                   [](unsigned char c) { return std::tolower(c); });
