@@ -25,6 +25,10 @@ jobs:
         Remove-Item -Recurse -Force "libs/miniz_temp"
         Remove-Item "miniz.zip"
     
+    - name: Download stb_image
+      run: |
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/master/stb_image.h" -OutFile "libs/stb_image.h"
+    
     - name: Configure CMake
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
     

@@ -5,8 +5,13 @@
 
 namespace epub {
 
-EpubParser::EpubParser() {}
-EpubParser::~EpubParser() { close(); }
+EpubParser::EpubParser() {
+    html_parser_.setImageCache(&image_cache_);
+}
+
+EpubParser::~EpubParser() { 
+    close(); 
+}
 
 bool EpubParser::open(const std::string& filepath) {
     LOG_INFO("Opening EPUB file:", filepath);
@@ -26,10 +31,13 @@ bool EpubParser::open(const std::string& filepath) {
         return false;
     }
     
+    parseTOC();
+    
     LOG_INFO("EPUB opened successfully");
     LOG_INFO("Title:", metadata_.title);
     LOG_INFO("Author:", metadata_.author);
     LOG_INFO("Chapters:", spine_.size());
+    LOG_INFO("TOC entries:", toc_parser_.getItems().size());
     
     return true;
 }
@@ -37,6 +45,8 @@ bool EpubParser::open(const std::string& filepath) {
 void EpubParser::close() {
     zip_.close();
     spine_.clear();
+    image_cache_.clear();
+    toc_parser_.clear();
 }
 
 bool EpubParser::parseContainer() {
@@ -48,14 +58,13 @@ bool EpubParser::parseContainer() {
         return false;
     }
     
-    // Простой поиск full-path в container.xml
     size_t pos = container.find("full-path=\"");
     if (pos == std::string::npos) {
         LOG_ERROR("full-path attribute not found in container.xml");
         return false;
     }
     
-    pos += 11; // длина "full-path=\""
+    pos += 11;
     size_t end = container.find("\"", pos);
     if (end == std::string::npos) {
         LOG_ERROR("Malformed full-path attribute");
@@ -65,7 +74,6 @@ bool EpubParser::parseContainer() {
     opf_path_ = container.substr(pos, end - pos);
     LOG_INFO("OPF path found:", opf_path_);
     
-    // Извлекаем директорию
     size_t last_slash = opf_path_.find_last_of("/");
     if (last_slash != std::string::npos) {
         content_dir_ = opf_path_.substr(0, last_slash + 1);
@@ -84,7 +92,6 @@ bool EpubParser::parseOPF() {
         return false;
     }
     
-    // Парсим метаданные
     metadata_.title = findTagContent(opf, "dc:title");
     metadata_.author = findTagContent(opf, "dc:creator");
     metadata_.language = findTagContent(opf, "dc:language");
@@ -93,7 +100,6 @@ bool EpubParser::parseOPF() {
     LOG_DEBUG("Parsed metadata - Author:", metadata_.author);
     LOG_DEBUG("Parsed metadata - Language:", metadata_.language);
     
-    // Парсим манифест
     std::unordered_map<std::string, SpineItem> manifest;
     size_t manifest_start = opf.find("<manifest");
     size_t manifest_end = opf.find("</manifest>", manifest_start);
@@ -110,7 +116,6 @@ bool EpubParser::parseOPF() {
             
             SpineItem item;
             
-            // id
             size_t id_pos = item_tag.find("id=\"");
             if (id_pos != std::string::npos) {
                 id_pos += 4;
@@ -118,7 +123,6 @@ bool EpubParser::parseOPF() {
                 item.id = item_tag.substr(id_pos, id_end - id_pos);
             }
             
-            // href
             size_t href_pos = item_tag.find("href=\"");
             if (href_pos != std::string::npos) {
                 href_pos += 6;
@@ -126,7 +130,6 @@ bool EpubParser::parseOPF() {
                 item.href = item_tag.substr(href_pos, href_end - href_pos);
             }
             
-            // media-type
             size_t type_pos = item_tag.find("media-type=\"");
             if (type_pos != std::string::npos) {
                 type_pos += 12;
@@ -139,7 +142,6 @@ bool EpubParser::parseOPF() {
         }
     }
     
-    // Парсим spine
     size_t spine_start = opf.find("<spine");
     size_t spine_end = opf.find("</spine>", spine_start);
     
@@ -166,11 +168,119 @@ bool EpubParser::parseOPF() {
     LOG_INFO("Parsed manifest items:", manifest.size());
     LOG_INFO("Parsed spine items:", spine_.size());
     
-    if (spine_.empty()) {
-        LOG_ERROR("Spine is empty");
+    return !spine_.empty();
+}
+
+bool EpubParser::parseTOC() {
+    LOG_DEBUG("Attempting to parse table of contents");
+    
+    // Try EPUB3 nav document first
+    std::string nav_path = content_dir_ + "nav.xhtml";
+    std::string nav_content = zip_.extractTextFile(nav_path);
+    
+    if (nav_content.empty()) {
+        nav_path = content_dir_ + "nav.html";
+        nav_content = zip_.extractTextFile(nav_path);
     }
     
-    return !spine_.empty();
+    if (!nav_content.empty()) {
+        if (toc_parser_.parseNav(nav_content)) {
+            LOG_INFO("TOC parsed from nav document");
+            mapTOCToSpine();
+            return true;
+        }
+    }
+    
+    // Try EPUB2 NCX
+    std::string ncx_path;
+    for (const auto& item : spine_) {
+        if (item.media_type == "application/x-dtbncx+xml") {
+            ncx_path = content_dir_ + item.href;
+            break;
+        }
+    }
+    
+    if (ncx_path.empty()) {
+        ncx_path = content_dir_ + "toc.ncx";
+    }
+    
+    std::string ncx_content = zip_.extractTextFile(ncx_path);
+    if (!ncx_content.empty()) {
+        if (toc_parser_.parseNCX(ncx_content)) {
+            LOG_INFO("TOC parsed from NCX");
+            mapTOCToSpine();
+            return true;
+        }
+    }
+    
+    LOG_WARNING("No TOC found");
+    return false;
+}
+
+void EpubParser::mapTOCToSpine() {
+    std::vector<TOCItem>& items = const_cast<std::vector<TOCItem>&>(toc_parser_.getItems());
+    
+    for (TOCItem& item : items) {
+        item.spine_index = findChapterByHref(item.href);
+    }
+}
+
+FormattedContent EpubParser::getChapterContent(size_t index) {
+    if (index >= spine_.size()) return FormattedContent();
+    
+    std::string path = spine_[index].href;
+    
+    while (path.find("../") == 0) {
+        path = path.substr(3);
+    }
+    
+    if (!content_dir_.empty() && path.find(content_dir_) != 0) {
+        path = content_dir_ + path;
+    }
+    
+    LOG_DEBUG("Loading chapter content from path:", path);
+    
+    std::string html = zip_.extractTextFile(path);
+    
+    if (html.empty()) {
+        LOG_WARNING("Failed to extract chapter, trying without content_dir");
+        path = spine_[index].href;
+        while (path.find("../") == 0) {
+            path = path.substr(3);
+        }
+        html = zip_.extractTextFile(path);
+    }
+    
+    return html_parser_.parse(html, &zip_, content_dir_);
+}
+
+std::string EpubParser::getChapterText(size_t index) {
+    if (index >= spine_.size()) return "";
+    
+    std::string path = spine_[index].href;
+    
+    while (path.find("../") == 0) {
+        path = path.substr(3);
+    }
+    
+    if (!content_dir_.empty() && path.find(content_dir_) != 0) {
+        path = content_dir_ + path;
+    }
+    
+    LOG_DEBUG("Loading chapter from path:", path);
+    
+    std::string html = zip_.extractTextFile(path);
+    
+    if (html.empty()) {
+        LOG_WARNING("Failed to extract chapter, trying without content_dir");
+        path = spine_[index].href;
+        while (path.find("../") == 0) {
+            path = path.substr(3);
+        }
+        html = zip_.extractTextFile(path);
+    }
+    
+    return extractTextFromHTML(html);
 }
 
 std::string EpubParser::findTagContent(const std::string& xml, const std::string& tag) {
@@ -199,13 +309,11 @@ std::string EpubParser::extractTextFromHTML(const std::string& html) {
         if (html[i] == '<') {
             in_tag = true;
             
-            // Проверяем script/style теги
             if (i + 7 < html.length() && html.substr(i, 7) == "<script") in_script = true;
             if (i + 6 < html.length() && html.substr(i, 6) == "<style") in_style = true;
             if (i + 9 < html.length() && html.substr(i, 9) == "</script>") in_script = false;
             if (i + 8 < html.length() && html.substr(i, 8) == "</style>") in_style = false;
             
-            // Добавляем пробелы для некоторых тегов
             if (i + 3 < html.length()) {
                 std::string tag = html.substr(i, 3);
                 if (tag == "<p>" || tag == "<br" || tag == "<di") {
@@ -219,7 +327,6 @@ std::string EpubParser::extractTextFromHTML(const std::string& html) {
         }
     }
     
-    // Декодируем HTML entities
     std::string result;
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '&') {
@@ -237,36 +344,22 @@ std::string EpubParser::extractTextFromHTML(const std::string& html) {
     return result;
 }
 
-std::string EpubParser::getChapterText(size_t index) {
-    if (index >= spine_.size()) return "";
-    
-    std::string path = spine_[index].href;
-    
-    // Нормализуем путь - убираем ../ в начале
-    while (path.find("../") == 0) {
-        path = path.substr(3);
-    }
-    
-    // Добавляем content_dir только если путь относительный
-    if (!content_dir_.empty() && path.find(content_dir_) != 0) {
-        path = content_dir_ + path;
-    }
-    
-    LOG_DEBUG("Loading chapter from path:", path);
-    
-    std::string html = zip_.extractTextFile(path);
-    
-    if (html.empty()) {
-        LOG_WARNING("Failed to extract chapter, trying without content_dir");
-        // Пробуем без content_dir
-        path = spine_[index].href;
-        while (path.find("../") == 0) {
-            path = path.substr(3);
+size_t EpubParser::findChapterByHref(const std::string& href) const {
+    for (size_t i = 0; i < spine_.size(); i++) {
+        if (spine_[i].href == href) {
+            return i;
         }
-        html = zip_.extractTextFile(path);
+        
+        size_t anchor = href.find('#');
+        if (anchor != std::string::npos) {
+            std::string href_no_anchor = href.substr(0, anchor);
+            if (spine_[i].href == href_no_anchor) {
+                return i;
+            }
+        }
     }
     
-    return extractTextFromHTML(html);
+    return 0;
 }
 
 } // namespace epub

@@ -1,6 +1,10 @@
 #pragma once
 
 #include "zip_handler.h"
+#include "formatted_text.h"
+#include "html_parser.h"
+#include "image_cache.h"
+#include "toc_parser.h"
 #include <string>
 #include <vector>
 
@@ -28,13 +32,22 @@ public:
     
     const Metadata& getMetadata() const { return metadata_; }
     const std::vector<SpineItem>& getSpine() const { return spine_; }
+    const std::vector<TOCItem>& getTOC() const { return toc_parser_.getItems(); }
     
+    FormattedContent getChapterContent(size_t index);
     std::string getChapterText(size_t index);
     size_t getChapterCount() const { return spine_.size(); }
+    
+    ImageCache& getImageCache() { return image_cache_; }
+    const ImageCache& getImageCache() const { return image_cache_; }
+    
+    size_t findChapterByHref(const std::string& href) const;
 
 private:
     bool parseContainer();
     bool parseOPF();
+    bool parseTOC();
+    
     std::string extractTextFromHTML(const std::string& html);
     std::string findTagContent(const std::string& xml, const std::string& tag);
     
@@ -43,6 +56,10 @@ private:
     std::string content_dir_;
     Metadata metadata_;
     std::vector<SpineItem> spine_;
+    
+    HTMLParser html_parser_;
+    ImageCache image_cache_;
+    TOCParser toc_parser_;
 };
 
 } // namespace epub
