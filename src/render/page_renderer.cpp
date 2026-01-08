@@ -2,6 +2,9 @@
 #include "../utils/logger.h"
 #include <algorithm>
 
+#undef min
+#undef max
+
 PageRenderer::PageRenderer() 
     : current_page_(0)
     , viewport_width_(0)
