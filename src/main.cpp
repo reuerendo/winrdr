@@ -189,18 +189,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 // Главная функция
 int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
     try {
-        // Открываем консоль для отладки
-        AllocConsole();
-        FILE* dummy;
-        freopen_s(&dummy, "CONOUT$", "w", stdout);
-        freopen_s(&dummy, "CONOUT$", "w", stderr);
-        
         // Инициализация логера
         Logger::instance().init("epub_reader.log", LOG_LEVEL_DEBUG);
         LOG_INFO("=== EPUB Reader started ===");
-        
-        printf("Application started\n");
-        fflush(stdout);
     
     // Регистрация класса окна
     WNDCLASSW wc = {};
@@ -212,12 +203,10 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
     
     if (!RegisterClassW(&wc)) {
         LOG_ERROR("Failed to register window class");
-        MessageBoxW(NULL, L"Failed to register window class", L"Error", MB_OK | MB_ICONERROR);
         return 1;
     }
     
     LOG_DEBUG("Window class registered");
-    printf("Window class registered\n");
     
     // Создание меню
     HMENU menu = CreateMenu();
@@ -240,16 +229,10 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
     
     if (!hwnd) {
         LOG_ERROR("Failed to create window");
-        DWORD error = GetLastError();
-        wchar_t msg[256];
-        swprintf_s(msg, L"Failed to create window. Error: %lu", error);
-        MessageBoxW(NULL, msg, L"Error", MB_OK | MB_ICONERROR);
-        printf("Failed to create window. Error: %lu\n", error);
         return 1;
     }
     
     LOG_INFO("Main window created");
-    printf("Main window created\n");
     
     ShowWindow(hwnd, cmdshow);
     UpdateWindow(hwnd);
@@ -269,11 +252,9 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
     
     } catch (const std::exception& e) {
         LOG_ERROR("Exception:", e.what());
-        MessageBoxA(NULL, e.what(), "Fatal Error", MB_OK | MB_ICONERROR);
         return 1;
     } catch (...) {
         LOG_ERROR("Unknown exception");
-        MessageBoxA(NULL, "Unknown exception occurred", "Fatal Error", MB_OK | MB_ICONERROR);
         return 1;
     }
 }
