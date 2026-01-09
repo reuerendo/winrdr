@@ -240,10 +240,28 @@ void LayoutEngine::flushInlineContent() {
     // Copy CSS spacing from current block node
     if (current_block_node_) {
         const ComputedStyle& cs = current_block_node_->computed_style;
+        
+        // Spacing
         elem.margin_top = cs.margin_top;
         elem.margin_bottom = cs.margin_bottom;
         elem.padding_left = cs.padding_left;
         elem.text_indent = cs.padding_left; // For now, use padding_left as text-indent
+        elem.has_css_spacing = true;
+        
+        // Text properties
+        elem.font_size_multiplier = cs.font_size_multiplier;
+        elem.line_height = cs.line_height;
+        
+        // Text color
+        elem.text_color_r = cs.text_color.r;
+        elem.text_color_g = cs.text_color.g;
+        elem.text_color_b = cs.text_color.b;
+        elem.has_text_color = (cs.text_color.r != 0 || cs.text_color.g != 0 || cs.text_color.b != 0);
+        
+        LOG_DEBUG("Element CSS applied:", "type=", (int)elem.type, 
+                  "margin_bottom=", elem.margin_bottom, 
+                  "font_size=", elem.font_size_multiplier,
+                  "color=", (int)elem.text_color_r, (int)elem.text_color_g, (int)elem.text_color_b);
     }
     
     output_.push_back(elem);
