@@ -18,15 +18,6 @@ void HTMLParser::setImageCache(ImageCache* cache) {
     image_cache_ = cache;
 }
 
-bool HTMLParser::isInlineElement(const std::string& tag) {
-    return tag == "span" || tag == "b" || tag == "strong" || 
-           tag == "i" || tag == "em" || tag == "u" || tag == "s" ||
-           tag == "strike" || tag == "del" || tag == "ins" ||
-           tag == "small" || tag == "sub" || tag == "sup" ||
-           tag == "code" || tag == "kbd" || tag == "a" ||
-           tag == "abbr" || tag == "cite" || tag == "q" || tag == "ruby";
-}
-
 FormattedContent HTMLParser::parse(const std::string& html, ZipHandler* zip, 
                                    const std::string& base_path) {
     FormattedContent content;
@@ -47,16 +38,8 @@ FormattedContent HTMLParser::parse(const std::string& html, ZipHandler* zip,
     size_t pos = 0;
     parseNode(html, pos, content, ctx, zip, base_path);
     
-    // Flush any accumulated text
-    if (!ctx.accumulated_text.empty()) {
-        TextElement elem;
-        elem.type = ctx.current_element;
-        elem.content = ctx.accumulated_text;
-        elem.style = ctx.accumulated_style;
-        elem.align = ctx.current_align;
-        elem.list_level = ctx.list_level;
-        content.push_back(elem);
-    }
+    // Flush any remaining text
+    flushCurrentText(ctx, content);
     
     return content;
 }
@@ -128,18 +111,17 @@ bool HTMLParser::isBlockElement(const std::string& tag) {
            tag == "figure" || tag == "figcaption";
 }
 
-void HTMLParser::flushAccumulatedText(ParseContext& ctx, FormattedContent& content) {
-    if (!ctx.accumulated_text.empty()) {
+void HTMLParser::flushCurrentText(ParseContext& ctx, FormattedContent& content) {
+    if (!ctx.current_text.empty() && !ctx.skip_content) {
         TextElement elem;
-        elem.type = ctx.current_element;
-        elem.content = ctx.accumulated_text;
-        elem.style = ctx.accumulated_style;
+        elem.type = ctx.block_element_type;
+        elem.content = ctx.current_text;
+        elem.style = ctx.current_style;
         elem.align = ctx.current_align;
         elem.list_level = ctx.list_level;
         content.push_back(elem);
         
-        ctx.accumulated_text.clear();
-        ctx.accumulated_style = ctx.current_style;
+        ctx.current_text.clear();
     }
 }
 
@@ -152,124 +134,143 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
     // Skip tags that should not render content
     if (tag_lower == "script" || tag_lower == "style" || tag_lower == "title" || 
         tag_lower == "head" || tag_lower == "meta" || tag_lower == "link") {
-        context_stack_.push(ctx);
+        StyleState state;
+        state.style = ctx.current_style;
+        state.skip = ctx.skip_content;
+        style_stack_.push(state);
         ctx.skip_content = true;
         return;
     }
     
-    // For block elements, flush accumulated text first
+    // Block elements - flush current text and start new block
     if (isBlockElement(tag_lower)) {
-        flushAccumulatedText(ctx, content);
+        flushCurrentText(ctx, content);
+        
+        StyleState state;
+        state.style = ctx.current_style;
+        state.element_type = ctx.block_element_type;
+        state.align = ctx.current_align;
+        state.skip = ctx.skip_content;
+        style_stack_.push(state);
+        
+        // Set new block type
+        if (tag_lower == "p") {
+            ctx.block_element_type = ElementType::Paragraph;
+        } else if (tag_lower == "h1") {
+            ctx.block_element_type = ElementType::Heading1;
+        } else if (tag_lower == "h2") {
+            ctx.block_element_type = ElementType::Heading2;
+        } else if (tag_lower == "h3") {
+            ctx.block_element_type = ElementType::Heading3;
+        } else if (tag_lower == "h4") {
+            ctx.block_element_type = ElementType::Heading4;
+        } else if (tag_lower == "h5") {
+            ctx.block_element_type = ElementType::Heading5;
+        } else if (tag_lower == "h6") {
+            ctx.block_element_type = ElementType::Heading6;
+        } else if (tag_lower == "blockquote") {
+            ctx.block_element_type = ElementType::Quote;
+        } else if (tag_lower == "li") {
+            ctx.block_element_type = ElementType::ListItem;
+        } else if (tag_lower == "pre") {
+            ctx.block_element_type = ElementType::CodeBlock;
+            ctx.current_style = ctx.current_style | TextStyle::Monospace;
+        } else {
+            ctx.block_element_type = ElementType::Paragraph;
+        }
+        
+        ctx.current_style = TextStyle::Normal;
+    }
+    // Inline elements - just modify style
+    else {
+        // Save current style state for inline elements
+        StyleState state;
+        state.style = ctx.current_style;
+        state.skip = ctx.skip_content;
+        style_stack_.push(state);
+        
+        if (tag_lower == "b" || tag_lower == "strong") {
+            // Flush current text with old style, apply new style
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Bold;
+        }
+        else if (tag_lower == "i" || tag_lower == "em" || tag_lower == "cite") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Italic;
+        }
+        else if (tag_lower == "u" || tag_lower == "ins") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Underline;
+        }
+        else if (tag_lower == "s" || tag_lower == "strike" || tag_lower == "del") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Strikethrough;
+        }
+        else if (tag_lower == "small") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Small;
+        }
+        else if (tag_lower == "sub") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Subscript | TextStyle::Small;
+        }
+        else if (tag_lower == "sup") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Superscript | TextStyle::Small;
+        }
+        else if (tag_lower == "code" || tag_lower == "kbd") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Monospace;
+        }
+        else if (tag_lower == "a") {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
+            ctx.current_style = ctx.current_style | TextStyle::Underline;
+        }
+        else if (tag_lower == "q") {
+            ctx.current_text += L"\"";
+        }
     }
     
-    context_stack_.push(ctx);
-    
-    // Block elements
-    if (tag_lower == "p") {
-        ctx.current_element = ElementType::Paragraph;
-        ctx.in_paragraph = true;
-    }
-    else if (tag_lower == "article" || tag_lower == "section" || tag_lower == "aside" ||
-             tag_lower == "header" || tag_lower == "footer" || tag_lower == "main" ||
-             tag_lower == "figure") {
-        ctx.current_element = ElementType::Paragraph;
-    }
-    else if (tag_lower == "figcaption") {
-        ctx.current_element = ElementType::Text;
-        ctx.current_style = ctx.current_style | TextStyle::Italic | TextStyle::Small;
-    }
-    
-    // Headings
-    else if (tag_lower == "h1") ctx.current_element = ElementType::Heading1;
-    else if (tag_lower == "h2") ctx.current_element = ElementType::Heading2;
-    else if (tag_lower == "h3") ctx.current_element = ElementType::Heading3;
-    else if (tag_lower == "h4") ctx.current_element = ElementType::Heading4;
-    else if (tag_lower == "h5") ctx.current_element = ElementType::Heading5;
-    else if (tag_lower == "h6") ctx.current_element = ElementType::Heading6;
-    
-    // Quotes
-    else if (tag_lower == "blockquote") {
-        ctx.current_element = ElementType::Quote;
-    }
-    else if (tag_lower == "q") {
-        ctx.accumulated_text += L"\"";
-    }
-    
-    // Lists
-    else if (tag_lower == "li") {
-        ctx.current_element = ElementType::ListItem;
-    }
-    else if (tag_lower == "ul" || tag_lower == "ol") {
+    // Special elements
+    if (tag_lower == "ul" || tag_lower == "ol") {
         ctx.list_level++;
+        StyleState state;
+        state.style = ctx.current_style;
+        state.skip = ctx.skip_content;
+        style_stack_.push(state);
     }
-    
-    // Code and preformatted
-    else if (tag_lower == "code" || tag_lower == "kbd") {
-        ctx.current_style = ctx.current_style | TextStyle::Monospace;
-    }
-    else if (tag_lower == "pre") {
-        ctx.current_element = ElementType::CodeBlock;
-        ctx.current_style = ctx.current_style | TextStyle::Monospace;
-    }
-    
-    // Inline text styling - bold
-    else if (tag_lower == "b" || tag_lower == "strong") {
-        ctx.current_style = ctx.current_style | TextStyle::Bold;
-    }
-    
-    // Inline text styling - italic
-    else if (tag_lower == "i" || tag_lower == "em" || tag_lower == "cite") {
-        ctx.current_style = ctx.current_style | TextStyle::Italic;
-    }
-    
-    // Inline text styling - underline
-    else if (tag_lower == "u" || tag_lower == "ins") {
-        ctx.current_style = ctx.current_style | TextStyle::Underline;
-    }
-    
-    // Inline text styling - strikethrough
-    else if (tag_lower == "s" || tag_lower == "strike" || tag_lower == "del") {
-        ctx.current_style = ctx.current_style | TextStyle::Strikethrough;
-    }
-    
-    // Inline text styling - small
-    else if (tag_lower == "small") {
-        ctx.current_style = ctx.current_style | TextStyle::Small;
-    }
-    
-    // Inline text styling - sub/sup
-    else if (tag_lower == "sub") {
-        ctx.current_style = ctx.current_style | TextStyle::Subscript | TextStyle::Small;
-    }
-    else if (tag_lower == "sup") {
-        ctx.current_style = ctx.current_style | TextStyle::Superscript | TextStyle::Small;
-    }
-    
-    // Links
-    else if (tag_lower == "a") {
-        ctx.current_style = ctx.current_style | TextStyle::Underline;
-        std::string href = extractAttribute(attributes, "href");
-    }
-    
-    // Horizontal rule
     else if (tag_lower == "hr") {
-        flushAccumulatedText(ctx, content);
+        flushCurrentText(ctx, content);
         TextElement elem;
         elem.type = ElementType::HorizontalRule;
         content.push_back(elem);
     }
-    
-    // Line break
     else if (tag_lower == "br") {
-        flushAccumulatedText(ctx, content);
+        flushCurrentText(ctx, content);
         TextElement elem;
         elem.type = ElementType::LineBreak;
         content.push_back(elem);
     }
-    
-    // Image
     else if (tag_lower == "img") {
-        flushAccumulatedText(ctx, content);
+        flushCurrentText(ctx, content);
         std::string src = extractAttribute(attributes, "src");
         if (!src.empty() && zip && image_cache_) {
             std::string img_path = normalizePath(base_path, src);
@@ -291,6 +292,9 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
     if (!class_name.empty()) {
         CSSStyle style = css_parser_.getStyle(class_name);
         if (style.has_style) {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
             ctx.current_style = ctx.current_style | style.text_style;
         }
         if (style.has_align) {
@@ -303,6 +307,9 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
         CSSStyle style;
         css_parser_.parseInlineStyle(inline_style, style);
         if (style.has_style) {
+            if (!ctx.current_text.empty()) {
+                flushCurrentText(ctx, content);
+            }
             ctx.current_style = ctx.current_style | style.text_style;
         }
         if (style.has_align) {
@@ -318,37 +325,64 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
     
     // Add closing quote for <q> tag
     if (tag_lower == "q" && !ctx.skip_content) {
-        ctx.accumulated_text += L"\"";
+        ctx.current_text += L"\"";
     }
     
-    // For block elements, flush accumulated text
+    // Block elements - flush and add line break
     if (isBlockElement(tag_lower)) {
-        flushAccumulatedText(ctx, content);
+        flushCurrentText(ctx, content);
         
-        // Add line break after block elements
-        if (!ctx.skip_content) {
-            if (!content.empty() && content.back().type != ElementType::LineBreak) {
-                TextElement elem;
-                elem.type = ElementType::LineBreak;
-                content.push_back(elem);
-            }
+        if (!ctx.skip_content && !content.empty() && 
+            content.back().type != ElementType::LineBreak) {
+            TextElement elem;
+            elem.type = ElementType::LineBreak;
+            content.push_back(elem);
+        }
+        
+        // Restore state
+        if (!style_stack_.empty()) {
+            StyleState state = style_stack_.top();
+            style_stack_.pop();
+            ctx.current_style = state.style;
+            ctx.block_element_type = state.element_type;
+            ctx.current_align = state.align;
+            ctx.skip_content = state.skip;
         }
     }
-    
-    if (tag_lower == "ul" || tag_lower == "ol") {
-        ctx.list_level--;
-    }
-    
-    // Save accumulated text before restoring context
-    std::wstring current_text = ctx.accumulated_text;
-    
-    if (!context_stack_.empty()) {
-        ctx = context_stack_.top();
-        context_stack_.pop();
+    // Inline elements - just restore style
+    else if (tag_lower == "b" || tag_lower == "strong" || 
+             tag_lower == "i" || tag_lower == "em" || tag_lower == "cite" ||
+             tag_lower == "u" || tag_lower == "ins" ||
+             tag_lower == "s" || tag_lower == "strike" || tag_lower == "del" ||
+             tag_lower == "small" || tag_lower == "sub" || tag_lower == "sup" ||
+             tag_lower == "code" || tag_lower == "kbd" || tag_lower == "a" ||
+             tag_lower == "span") {
         
-        // Restore accumulated text for inline elements
-        if (!isBlockElement(tag_lower)) {
-            ctx.accumulated_text = current_text;
+        // Flush text with current style
+        if (!ctx.current_text.empty()) {
+            flushCurrentText(ctx, content);
+        }
+        
+        // Restore previous style
+        if (!style_stack_.empty()) {
+            StyleState state = style_stack_.top();
+            style_stack_.pop();
+            ctx.current_style = state.style;
+            ctx.skip_content = state.skip;
+        }
+    }
+    else if (tag_lower == "ul" || tag_lower == "ol") {
+        ctx.list_level--;
+        if (!style_stack_.empty()) {
+            style_stack_.pop();
+        }
+    }
+    else if (tag_lower == "script" || tag_lower == "style" || tag_lower == "title" ||
+             tag_lower == "head") {
+        if (!style_stack_.empty()) {
+            StyleState state = style_stack_.top();
+            style_stack_.pop();
+            ctx.skip_content = state.skip;
         }
     }
 }
@@ -371,15 +405,7 @@ void HTMLParser::addText(const std::string& text, ParseContext& ctx,
     if (!has_content) return;
     
     std::wstring wide_text = utf8ToWide(decoded);
-    
-    // If style changed, create new element with accumulated text first
-    if (!ctx.accumulated_text.empty() && ctx.accumulated_style != ctx.current_style) {
-        flushAccumulatedText(ctx, content);
-    }
-    
-    // Accumulate text with current style
-    ctx.accumulated_text += wide_text;
-    ctx.accumulated_style = ctx.current_style;
+    ctx.current_text += wide_text;
 }
 
 std::string HTMLParser::extractTagName(const std::string& tag_content) {
