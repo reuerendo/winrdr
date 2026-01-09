@@ -19,7 +19,6 @@ set(SOURCES
     src/epub/toc_parser.cpp
     src/epub/reading_position.cpp
 	src/epub/dom_builder.cpp
-	src/epub/dom_node.cpp
 	src/epub/style_resolver.cpp
 	src/epub/layout_engine.cpp
     src/render/page_renderer.cpp
