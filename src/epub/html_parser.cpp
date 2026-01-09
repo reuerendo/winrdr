@@ -339,9 +339,17 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
         ctx.list_level--;
     }
     
+    // Save accumulated text before restoring context
+    std::wstring current_text = ctx.accumulated_text;
+    
     if (!context_stack_.empty()) {
         ctx = context_stack_.top();
         context_stack_.pop();
+        
+        // Restore accumulated text for inline elements
+        if (!isBlockElement(tag_lower)) {
+            ctx.accumulated_text = current_text;
+        }
     }
 }
 
