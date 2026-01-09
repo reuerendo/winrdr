@@ -70,6 +70,36 @@ struct ComputedStyle {
     
     // Line height
     float line_height = 1.2f;
+    
+    // NEW: Advanced typography
+    float letter_spacing = 0.0f; // in em units
+    
+    enum class TextTransform { None, Uppercase, Lowercase, Capitalize } text_transform = TextTransform::None;
+    
+    enum class FontVariantCaps { 
+        Normal, SmallCaps, AllSmallCaps 
+    } font_variant_caps = FontVariantCaps::Normal;
+    
+    enum class Hyphens { None, Manual, Auto } hyphens = Hyphens::Manual;
+    
+    // Page break hints
+    enum class PageBreak { Auto, Always, Avoid } page_break_before = PageBreak::Auto;
+    enum class PageBreak page_break_after = PageBreak::Auto;
+    enum class PageBreak page_break_inside = PageBreak::Auto;
+    
+    // Font family (simplified - just store name)
+    std::string font_family;
+    
+    // Text rendering hints
+    enum class TextRendering { Auto, OptimizeSpeed, OptimizeLegibility } 
+        text_rendering = TextRendering::Auto;
+    
+    // Text indent
+    float text_indent = 0.0f; // in em units
+    
+    // Text alignment for last line (for justify)
+    enum class TextAlignLast { Auto, Left, Right, Center, Justify } 
+        text_align_last = TextAlignLast::Auto;
 };
 
 class DOMNode {

@@ -26,6 +26,7 @@ private:
     
     std::wstring utf8ToWide(const std::string& str);
     std::wstring processWhitespace(const std::wstring& text, ComputedStyle::WhiteSpace ws);
+    std::wstring applyTextTransform(const std::wstring& text, ComputedStyle::TextTransform transform);
     
     FormattedContent output_;
     ImageCache* image_cache_;

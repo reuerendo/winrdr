@@ -24,6 +24,8 @@ public:
     void setImageCache(ImageCache* cache);
 
 private:
+    void loadExternalStylesheet(const std::string& href, ZipHandler* zip,
+                               const std::string& base_path);
     void extractAndLoadImages(DocumentNode* document, ZipHandler* zip, 
                              const std::string& base_path);
     void processImageNode(ElementNode* element, ZipHandler* zip, 

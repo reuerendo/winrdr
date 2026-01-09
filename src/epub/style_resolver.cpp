@@ -10,14 +10,14 @@ namespace epub {
 StyleResolver::StyleResolver() {}
 
 void StyleResolver::addStylesheet(const std::string& css) {
+    LOG_INFO("Adding stylesheet, size:", css.length());
+    
     size_t pos = 0;
+    int rules_parsed = 0;
     
     while (pos < css.length()) {
-        // Skip whitespace
-        while (pos < css.length() && std::isspace(css[pos])) {
-            pos++;
-        }
-        
+        // Skip whitespace and comments
+        pos = skipWhitespaceAndComments(css, pos);
         if (pos >= css.length()) break;
         
         // Find selector (everything before {)
@@ -32,13 +32,21 @@ void StyleResolver::addStylesheet(const std::string& css) {
         
         std::string declarations_str = css.substr(brace_open + 1, brace_close - brace_open - 1);
         
-        CSSRule rule;
-        rule.selector = selector;
-        rule.specificity = calculateSpecificity(selector);
-        parseDeclarations(declarations_str, rule.declarations);
+        // Handle comma-separated selectors (e.g., "h1, h2, h3")
+        std::vector<std::string> selectors = splitSelectors(selector);
         
-        if (!rule.declarations.empty()) {
-            rules_.push_back(rule);
+        for (const std::string& sel : selectors) {
+            CSSRule rule;
+            rule.selector = trim(sel);
+            rule.specificity = calculateSpecificity(rule.selector);
+            parseDeclarations(declarations_str, rule.declarations);
+            
+            if (!rule.declarations.empty()) {
+                rules_.push_back(rule);
+                rules_parsed++;
+                LOG_DEBUG("Parsed CSS rule:", rule.selector, "specificity:", rule.specificity, 
+                         "declarations:", rule.declarations.size());
+            }
         }
         
         pos = brace_close + 1;
@@ -49,10 +57,62 @@ void StyleResolver::addStylesheet(const std::string& css) {
              [](const CSSRule& a, const CSSRule& b) {
                  return a.specificity < b.specificity;
              });
+    
+    LOG_INFO("Stylesheet parsed, total rules:", rules_parsed, "total in memory:", rules_.size());
 }
 
 void StyleResolver::clear() {
     rules_.clear();
+    LOG_DEBUG("Style resolver cleared");
+}
+
+std::vector<std::string> StyleResolver::splitSelectors(const std::string& selector) {
+    std::vector<std::string> result;
+    std::string current;
+    int bracket_depth = 0;
+    
+    for (size_t i = 0; i < selector.length(); i++) {
+        char c = selector[i];
+        
+        if (c == '[') {
+            bracket_depth++;
+            current += c;
+        } else if (c == ']') {
+            bracket_depth--;
+            current += c;
+        } else if (c == ',' && bracket_depth == 0) {
+            std::string trimmed = trim(current);
+            if (!trimmed.empty()) {
+                result.push_back(trimmed);
+            }
+            current.clear();
+        } else {
+            current += c;
+        }
+    }
+    
+    std::string trimmed = trim(current);
+    if (!trimmed.empty()) {
+        result.push_back(trimmed);
+    }
+    
+    return result;
+}
+
+size_t StyleResolver::skipWhitespaceAndComments(const std::string& css, size_t pos) {
+    while (pos < css.length()) {
+        if (std::isspace(css[pos])) {
+            pos++;
+        } else if (pos + 1 < css.length() && css[pos] == '/' && css[pos + 1] == '*') {
+            // Skip /* comment */
+            pos = css.find("*/", pos + 2);
+            if (pos == std::string::npos) return css.length();
+            pos += 2;
+        } else {
+            break;
+        }
+    }
+    return pos;
 }
 
 void StyleResolver::parseDeclarations(const std::string& declarations_str,
@@ -76,6 +136,7 @@ void StyleResolver::parseDeclarations(const std::string& declarations_str,
         
         if (!property.empty() && !value.empty()) {
             out[property] = value;
+            LOG_DEBUG("  Declaration:", property, "=", value);
         }
         
         pos = semicolon + 1;
@@ -83,9 +144,13 @@ void StyleResolver::parseDeclarations(const std::string& declarations_str,
 }
 
 void StyleResolver::resolveStyles(DocumentNode* document) {
+    LOG_INFO("Resolving styles for document");
+    
     // Traverse DOM tree
     std::vector<DOMNode*> queue;
     queue.push_back(document);
+    
+    int nodes_processed = 0;
     
     while (!queue.empty()) {
         DOMNode* node = queue.back();
@@ -102,11 +167,15 @@ void StyleResolver::resolveStyles(DocumentNode* document) {
         
         inheritStyles(node);
         
+        nodes_processed++;
+        
         // Add children to queue
         for (auto& child : node->children) {
             queue.push_back(child.get());
         }
     }
+    
+    LOG_INFO("Style resolution complete, nodes processed:", nodes_processed);
 }
 
 void StyleResolver::applyDefaultStyles(DOMNode* node) {
@@ -266,19 +335,30 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
+    int matched_rules = 0;
+    
     // Apply matching CSS rules in order of specificity
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
+            matched_rules++;
+            LOG_DEBUG("Element", element->getTagName(), "matches selector:", rule.selector);
+            
             for (const auto& decl : rule.declarations) {
                 applyDeclaration(decl.first, decl.second, element->computed_style);
             }
         }
+    }
+    
+    if (matched_rules > 0) {
+        LOG_DEBUG("Applied", matched_rules, "CSS rules to", element->getTagName());
     }
 }
 
 void StyleResolver::applyInlineStyle(ElementNode* element) {
     std::string inline_style = element->getAttribute("style");
     if (inline_style.empty()) return;
+    
+    LOG_DEBUG("Applying inline style to", element->getTagName(), ":", inline_style);
     
     std::unordered_map<std::string, std::string> declarations;
     parseDeclarations(inline_style, declarations);
@@ -309,57 +389,230 @@ void StyleResolver::inheritStyles(DOMNode* node) {
             style.text_color = parent_style.text_color;
         }
     }
+    
+    // Inherit font family
+    if (style.font_family.empty() && !parent_style.font_family.empty()) {
+        style.font_family = parent_style.font_family;
+    }
 }
 
 bool StyleResolver::matchesSelector(ElementNode* element, const std::string& selector) {
     std::string sel = trim(selector);
-    
-    // Simple selector matching (tag, class, id)
-    // This is simplified - real CSS selector matching is much more complex
     
     if (sel.empty()) return false;
     
     // Universal selector
     if (sel == "*") return true;
     
-    // Class selector
-    if (sel[0] == '.') {
-        std::string class_name = sel.substr(1);
+    // Handle complex selectors with combinators
+    if (sel.find(' ') != std::string::npos || 
+        sel.find('>') != std::string::npos ||
+        sel.find('+') != std::string::npos ||
+        sel.find('~') != std::string::npos) {
+        return matchesComplexSelector(element, sel);
+    }
+    
+    // Simple selector matching
+    return matchesSimpleSelector(element, sel);
+}
+
+bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::string& selector) {
+    std::string sel = trim(selector);
+    
+    // Parse pseudo-classes and pseudo-elements
+    size_t pseudo_pos = sel.find(':');
+    std::string base_selector = sel;
+    std::string pseudo;
+    
+    if (pseudo_pos != std::string::npos) {
+        base_selector = sel.substr(0, pseudo_pos);
+        pseudo = sel.substr(pseudo_pos);
+        
+        // Handle :not(), :is(), :where()
+        if (pseudo.find(":not(") == 0 || pseudo.find(":is(") == 0 || 
+            pseudo.find(":where(") == 0) {
+            size_t paren_close = pseudo.find(')');
+            if (paren_close != std::string::npos) {
+                std::string inner = pseudo.substr(pseudo.find('(') + 1, 
+                                                  paren_close - pseudo.find('(') - 1);
+                
+                bool matches_inner = matchesSimpleSelector(element, inner);
+                
+                if (pseudo.find(":not(") == 0) {
+                    if (matches_inner) return false;
+                } else {
+                    if (!matches_inner) return false;
+                }
+                
+                // Continue with base selector
+                if (base_selector.empty()) return true;
+            }
+        }
+        
+        // For now, ignore other pseudo-classes/elements
+        // (proper implementation would require DOM tree traversal)
+    }
+    
+    if (base_selector.empty()) base_selector = "*";
+    
+    // Parse attribute selectors
+    size_t bracket_pos = base_selector.find('[');
+    std::string tag_part = base_selector;
+    std::vector<std::string> attributes;
+    
+    while (bracket_pos != std::string::npos) {
+        tag_part = base_selector.substr(0, bracket_pos);
+        
+        size_t bracket_close = base_selector.find(']', bracket_pos);
+        if (bracket_close == std::string::npos) break;
+        
+        std::string attr = base_selector.substr(bracket_pos + 1, bracket_close - bracket_pos - 1);
+        attributes.push_back(attr);
+        
+        base_selector = base_selector.substr(bracket_close + 1);
+        bracket_pos = base_selector.find('[');
+    }
+    
+    // Parse classes and IDs from tag_part
+    std::string tag_name;
+    std::vector<std::string> classes;
+    std::string id;
+    
+    size_t pos = 0;
+    while (pos < tag_part.length()) {
+        if (tag_part[pos] == '.') {
+            size_t next = tag_part.find_first_of(".#", pos + 1);
+            if (next == std::string::npos) next = tag_part.length();
+            classes.push_back(tag_part.substr(pos + 1, next - pos - 1));
+            pos = next;
+        } else if (tag_part[pos] == '#') {
+            size_t next = tag_part.find_first_of(".#", pos + 1);
+            if (next == std::string::npos) next = tag_part.length();
+            id = tag_part.substr(pos + 1, next - pos - 1);
+            pos = next;
+        } else {
+            size_t next = tag_part.find_first_of(".#", pos);
+            if (next == std::string::npos) next = tag_part.length();
+            tag_name = tag_part.substr(pos, next - pos);
+            pos = next;
+        }
+    }
+    
+    // Match tag name
+    if (!tag_name.empty() && tag_name != "*") {
+        if (element->getTagName() != toLowerCase(tag_name)) {
+            return false;
+        }
+    }
+    
+    // Match ID
+    if (!id.empty()) {
+        if (element->getAttribute("id") != id) {
+            return false;
+        }
+    }
+    
+    // Match classes
+    for (const std::string& class_name : classes) {
         std::string element_class = element->getAttribute("class");
         
         // Check if class_name is in element_class (space-separated list)
-        size_t pos = element_class.find(class_name);
-        if (pos != std::string::npos) {
-            bool start_ok = (pos == 0 || std::isspace(element_class[pos - 1]));
-            bool end_ok = (pos + class_name.length() == element_class.length() ||
-                          std::isspace(element_class[pos + class_name.length()]));
-            if (start_ok && end_ok) return true;
+        size_t class_pos = element_class.find(class_name);
+        if (class_pos == std::string::npos) return false;
+        
+        bool start_ok = (class_pos == 0 || std::isspace(element_class[class_pos - 1]));
+        bool end_ok = (class_pos + class_name.length() == element_class.length() ||
+                      std::isspace(element_class[class_pos + class_name.length()]));
+        if (!start_ok || !end_ok) return false;
+    }
+    
+    // Match attributes
+    for (const std::string& attr : attributes) {
+        if (!matchesAttributeSelector(element, attr)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+bool StyleResolver::matchesAttributeSelector(ElementNode* element, const std::string& attr_selector) {
+    std::string attr = trim(attr_selector);
+    
+    // Simple attribute presence: [attr]
+    if (attr.find('=') == std::string::npos) {
+        return element->hasAttribute(attr);
+    }
+    
+    // Attribute with value: [attr="value"] or [attr=value]
+    size_t eq_pos = attr.find('=');
+    std::string attr_name = trim(attr.substr(0, eq_pos));
+    std::string attr_value = trim(attr.substr(eq_pos + 1));
+    
+    // Remove quotes
+    if (!attr_value.empty() && (attr_value[0] == '"' || attr_value[0] == '\'')) {
+        attr_value = attr_value.substr(1, attr_value.length() - 2);
+    }
+    
+    return element->getAttribute(attr_name) == attr_value;
+}
+
+bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::string& selector) {
+    // Simplified complex selector matching
+    // Supports descendant combinator (space) and child combinator (>)
+    
+    // Split by > (child combinator)
+    if (selector.find('>') != std::string::npos) {
+        size_t pos = selector.rfind('>');
+        std::string right = trim(selector.substr(pos + 1));
+        std::string left = trim(selector.substr(0, pos));
+        
+        if (!matchesSimpleSelector(element, right)) return false;
+        if (!element->parent) return false;
+        
+        if (element->parent->getType() == NodeType::Element) {
+            return matchesSelector(static_cast<ElementNode*>(element->parent), left);
         }
         return false;
     }
     
-    // ID selector
-    if (sel[0] == '#') {
-        std::string id = sel.substr(1);
-        return element->getAttribute("id") == id;
+    // Split by space (descendant combinator)
+    if (selector.find(' ') != std::string::npos) {
+        size_t pos = selector.rfind(' ');
+        std::string right = trim(selector.substr(pos + 1));
+        std::string left = trim(selector.substr(0, pos));
+        
+        if (!matchesSimpleSelector(element, right)) return false;
+        
+        // Check ancestors
+        DOMNode* ancestor = element->parent;
+        while (ancestor) {
+            if (ancestor->getType() == NodeType::Element) {
+                if (matchesSelector(static_cast<ElementNode*>(ancestor), left)) {
+                    return true;
+                }
+            }
+            ancestor = ancestor->parent;
+        }
+        return false;
     }
     
-    // Tag selector
-    return element->getTagName() == toLowerCase(sel);
+    return matchesSimpleSelector(element, selector);
 }
 
 int StyleResolver::calculateSpecificity(const std::string& selector) {
-    // Simplified specificity: count IDs, classes, and elements
-    // Real CSS specificity is more complex
+    // CSS specificity: (inline, IDs, classes/attrs, elements)
+    // We simplify to a single number: ID=100, class=10, element=1
     
     int specificity = 0;
     
-    for (char c : selector) {
-        if (c == '#') specificity += 100;
-        else if (c == '.') specificity += 10;
+    for (size_t i = 0; i < selector.length(); i++) {
+        if (selector[i] == '#') specificity += 100;
+        else if (selector[i] == '.') specificity += 10;
+        else if (selector[i] == '[') specificity += 10;
     }
     
-    // If no class or ID, it's a tag selector
+    // Count element selectors (simplified)
     if (specificity == 0 && !selector.empty() && selector[0] != '*') {
         specificity = 1;
     }
@@ -371,6 +624,8 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
                                     ComputedStyle& style) {
     std::string prop = toLowerCase(trim(property));
     std::string val = toLowerCase(trim(value));
+    
+    LOG_DEBUG("    Applying:", prop, "=", val);
     
     if (prop == "display") {
         style.display = parseDisplay(val);
@@ -403,6 +658,9 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         }
     }
     else if (prop == "font-family") {
+        // Store original value for font family
+        style.font_family = value; // Keep original case
+        
         if (val.find("monospace") != std::string::npos ||
             val.find("courier") != std::string::npos ||
             val.find("mono") != std::string::npos ||
@@ -414,10 +672,14 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         float multiplier = parseLength(val, 1.0f);
         if (multiplier > 0) {
             style.font_size_multiplier = multiplier;
+            LOG_DEBUG("      Font size multiplier:", multiplier);
         }
     }
     else if (prop == "text-align") {
         style.text_align = parseTextAlign(val);
+    }
+    else if (prop == "text-align-last") {
+        style.text_align_last = parseTextAlignLast(val);
     }
     else if (prop == "vertical-align") {
         style.vertical_align = parseVerticalAlign(val);
@@ -434,9 +696,11 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     }
     else if (prop == "margin-top") {
         style.margin_top = parseLength(val, 16.0f);
+        LOG_DEBUG("      Margin top:", style.margin_top);
     }
     else if (prop == "margin-bottom") {
         style.margin_bottom = parseLength(val, 16.0f);
+        LOG_DEBUG("      Margin bottom:", style.margin_bottom);
     }
     else if (prop == "margin-left") {
         style.margin_left = parseLength(val, 16.0f);
@@ -480,6 +744,66 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
             style.list_style = ComputedStyle::ListStyleType::Decimal;
         }
     }
+    else if (prop == "letter-spacing") {
+        style.letter_spacing = parseLength(val, 1.0f);
+        LOG_DEBUG("      Letter spacing:", style.letter_spacing);
+    }
+    else if (prop == "text-transform") {
+        if (val == "uppercase") {
+            style.text_transform = ComputedStyle::TextTransform::Uppercase;
+        } else if (val == "lowercase") {
+            style.text_transform = ComputedStyle::TextTransform::Lowercase;
+        } else if (val == "capitalize") {
+            style.text_transform = ComputedStyle::TextTransform::Capitalize;
+        } else {
+            style.text_transform = ComputedStyle::TextTransform::None;
+        }
+    }
+    else if (prop == "font-variant-caps") {
+        if (val == "small-caps") {
+            style.font_variant_caps = ComputedStyle::FontVariantCaps::SmallCaps;
+        } else if (val == "all-small-caps") {
+            style.font_variant_caps = ComputedStyle::FontVariantCaps::AllSmallCaps;
+        } else {
+            style.font_variant_caps = ComputedStyle::FontVariantCaps::Normal;
+        }
+    }
+    else if (prop == "hyphens") {
+        if (val == "none") {
+            style.hyphens = ComputedStyle::Hyphens::None;
+        } else if (val == "manual") {
+            style.hyphens = ComputedStyle::Hyphens::Manual;
+        } else if (val == "auto") {
+            style.hyphens = ComputedStyle::Hyphens::Auto;
+        }
+    }
+    else if (prop == "text-indent") {
+        style.text_indent = parseLength(val, 1.0f);
+        LOG_DEBUG("      Text indent:", style.text_indent);
+    }
+    else if (prop == "page-break-before") {
+        style.page_break_before = parsePageBreak(val);
+    }
+    else if (prop == "page-break-after") {
+        style.page_break_after = parsePageBreak(val);
+    }
+    else if (prop == "page-break-inside") {
+        style.page_break_inside = parsePageBreak(val);
+    }
+    else if (prop == "text-rendering") {
+        if (val == "optimizespeed") {
+            style.text_rendering = ComputedStyle::TextRendering::OptimizeSpeed;
+        } else if (val == "optimizelegibility") {
+            style.text_rendering = ComputedStyle::TextRendering::OptimizeLegibility;
+        } else {
+            style.text_rendering = ComputedStyle::TextRendering::Auto;
+        }
+    }
+    // Ignore unsupported properties silently
+    else if (prop != "font-kerning" && prop != "font-variant-ligatures" && 
+             prop != "font-variant-numeric" && prop != "font-feature-settings") {
+        LOG_DEBUG("      Unsupported property:", prop);
+    }
 }
 
 DisplayType StyleResolver::parseDisplay(const std::string& value) {
@@ -502,6 +826,14 @@ ComputedStyle::TextAlign StyleResolver::parseTextAlign(const std::string& value)
     return ComputedStyle::TextAlign::Left;
 }
 
+ComputedStyle::TextAlignLast StyleResolver::parseTextAlignLast(const std::string& value) {
+    if (value == "left") return ComputedStyle::TextAlignLast::Left;
+    if (value == "right") return ComputedStyle::TextAlignLast::Right;
+    if (value == "center") return ComputedStyle::TextAlignLast::Center;
+    if (value == "justify") return ComputedStyle::TextAlignLast::Justify;
+    return ComputedStyle::TextAlignLast::Auto;
+}
+
 ComputedStyle::VerticalAlign StyleResolver::parseVerticalAlign(const std::string& value) {
     if (value == "sub" || value == "subscript") return ComputedStyle::VerticalAlign::Sub;
     if (value == "super" || value == "sup" || value == "superscript") {
@@ -515,6 +847,12 @@ ComputedStyle::WhiteSpace StyleResolver::parseWhiteSpace(const std::string& valu
     if (value == "nowrap") return ComputedStyle::WhiteSpace::Nowrap;
     if (value == "pre-wrap") return ComputedStyle::WhiteSpace::PreWrap;
     return ComputedStyle::WhiteSpace::Normal;
+}
+
+ComputedStyle::PageBreak StyleResolver::parsePageBreak(const std::string& value) {
+    if (value == "always") return ComputedStyle::PageBreak::Always;
+    if (value == "avoid") return ComputedStyle::PageBreak::Avoid;
+    return ComputedStyle::PageBreak::Auto;
 }
 
 ComputedStyle::Color StyleResolver::parseColor(const std::string& value) {
@@ -547,12 +885,16 @@ ComputedStyle::Color StyleResolver::parseColor(const std::string& value) {
         }
         
         if (hex.length() == 6) {
-            unsigned int color_val = std::stoul(hex, nullptr, 16);
-            return ComputedStyle::Color(
-                (color_val >> 16) & 0xFF,
-                (color_val >> 8) & 0xFF,
-                color_val & 0xFF
-            );
+            try {
+                unsigned int color_val = std::stoul(hex, nullptr, 16);
+                return ComputedStyle::Color(
+                    (color_val >> 16) & 0xFF,
+                    (color_val >> 8) & 0xFF,
+                    color_val & 0xFF
+                );
+            } catch (...) {
+                return ComputedStyle::Color(0, 0, 0);
+            }
         }
     }
     
@@ -596,13 +938,13 @@ float StyleResolver::parseLength(const std::string& value, float base_size) {
     if (unit.empty() || unit == "px") {
         return num;
     } else if (unit == "em") {
-        return num * base_size;
+        return num;  // Will be multiplied by font size later
     } else if (unit == "rem") {
-        return num * 16.0f;
+        return num;  // Relative to root font size (16px)
     } else if (unit == "%") {
-        return num * base_size / 100.0f;
+        return num / 100.0f;
     } else if (unit == "pt") {
-        return num * 1.333f;
+        return num * 1.333f;  // 1pt = 1.333px
     }
     
     return num;

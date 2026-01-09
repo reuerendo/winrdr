@@ -15,18 +15,21 @@ void HTMLParserNew::setImageCache(ImageCache* cache) {
 
 FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
                                      const std::string& base_path) {
-    LOG_DEBUG("Parsing HTML, length:", html.length());
+    LOG_INFO("=== Starting HTML parsing ===");
+    LOG_DEBUG("HTML length:", html.length());
+    LOG_DEBUG("Base path:", base_path);
     
     // Step 1: Build DOM tree
     auto document = dom_builder_.parse(html);
     
-    LOG_DEBUG("DOM tree built, children:", document->children.size());
+    LOG_INFO("DOM tree built, children:", document->children.size());
     
     // Step 2: Extract and parse CSS
     style_resolver_.clear();
     
     // Extract inline <style> tags
     std::vector<ElementNode*> style_elements;
+    std::vector<ElementNode*> link_elements;
     std::vector<DOMNode*> queue;
     queue.push_back(document.get());
     
@@ -39,6 +42,11 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
             
             if (element->getTagName() == "style") {
                 style_elements.push_back(element);
+            } else if (element->getTagName() == "link") {
+                std::string rel = element->getAttribute("rel");
+                if (rel == "stylesheet") {
+                    link_elements.push_back(element);
+                }
             }
         }
         
@@ -46,6 +54,9 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
             queue.push_back(child.get());
         }
     }
+    
+    LOG_INFO("Found inline <style> tags:", style_elements.size());
+    LOG_INFO("Found <link> stylesheet tags:", link_elements.size());
     
     // Parse CSS from <style> tags
     for (ElementNode* style_elem : style_elements) {
@@ -58,15 +69,26 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
         }
         
         if (!css.empty()) {
-            LOG_DEBUG("Parsing CSS stylesheet, length:", css.length());
+            LOG_INFO("Parsing inline stylesheet, length:", css.length());
             style_resolver_.addStylesheet(css);
         }
     }
     
+    // Load and parse external CSS files
+    if (zip) {
+        for (ElementNode* link_elem : link_elements) {
+            std::string href = link_elem->getAttribute("href");
+            if (!href.empty()) {
+                loadExternalStylesheet(href, zip, base_path);
+            }
+        }
+    }
+    
     // Step 3: Resolve styles (cascade + compute)
+    LOG_INFO("Resolving styles...");
     style_resolver_.resolveStyles(document.get());
     
-    LOG_DEBUG("Styles resolved");
+    LOG_INFO("Styles resolved");
     
     // Step 4: Load images
     if (zip && image_cache_) {
@@ -74,11 +96,39 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
     }
     
     // Step 5: Layout
+    LOG_INFO("Starting layout...");
     FormattedContent content = layout_engine_.layout(document.get(), image_cache_);
     
-    LOG_INFO("HTML parsing complete, elements:", content.size());
+    LOG_INFO("=== HTML parsing complete, elements:", content.size(), "===");
     
     return content;
+}
+
+void HTMLParserNew::loadExternalStylesheet(const std::string& href, ZipHandler* zip,
+                                           const std::string& base_path) {
+    std::string css_path = normalizePath(base_path, href);
+    
+    LOG_INFO("Loading external stylesheet:", css_path);
+    
+    std::string css_content = zip->extractTextFile(css_path);
+    
+    if (css_content.empty()) {
+        // Try without base path
+        css_path = href;
+        while (css_path.find("../") == 0) {
+            css_path = css_path.substr(3);
+        }
+        
+        LOG_DEBUG("Retrying with path:", css_path);
+        css_content = zip->extractTextFile(css_path);
+    }
+    
+    if (!css_content.empty()) {
+        LOG_INFO("External stylesheet loaded, length:", css_content.length());
+        style_resolver_.addStylesheet(css_content);
+    } else {
+        LOG_WARNING("Failed to load external stylesheet:", href);
+    }
 }
 
 void HTMLParserNew::extractAndLoadImages(DocumentNode* document, ZipHandler* zip,
@@ -104,7 +154,7 @@ void HTMLParserNew::extractAndLoadImages(DocumentNode* document, ZipHandler* zip
         }
     }
     
-    LOG_DEBUG("Found images:", img_elements.size());
+    LOG_INFO("Found images:", img_elements.size());
     
     for (ElementNode* img : img_elements) {
         processImageNode(img, zip, base_path);
@@ -140,13 +190,25 @@ std::string HTMLParserNew::normalizePath(const std::string& base, const std::str
     
     // Remove leading ../
     std::string path = relative;
+    std::string current_base = base;
+    
     while (path.find("../") == 0) {
         path = path.substr(3);
+        
+        // Remove last directory from base
+        if (!current_base.empty()) {
+            size_t last_slash = current_base.find_last_of('/', current_base.length() - 2);
+            if (last_slash != std::string::npos) {
+                current_base = current_base.substr(0, last_slash + 1);
+            } else {
+                current_base.clear();
+            }
+        }
     }
     
     // Combine with base
-    if (!base.empty()) {
-        return base + path;
+    if (!current_base.empty()) {
+        return current_base + path;
     }
     
     return path;

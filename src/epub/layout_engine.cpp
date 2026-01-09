@@ -24,6 +24,8 @@ FormattedContent LayoutEngine::layout(DocumentNode* document, ImageCache* image_
     current_inline_text_.clear();
     in_inline_context_ = false;
     
+    LOG_INFO("Starting layout, document children:", document->children.size());
+    
     for (auto& child : document->children) {
         layoutNode(child.get(), 0);
     }
@@ -39,7 +41,23 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
     
     // Skip nodes with display:none
     if (node->computed_style.display == DisplayType::None) {
+        LOG_DEBUG("Skipping node with display:none");
         return;
+    }
+    
+    // Apply margin-top spacing before block elements
+    if (node->getType() == NodeType::Element && 
+        (node->computed_style.display == DisplayType::Block ||
+         node->computed_style.display == DisplayType::ListItem)) {
+        
+        float margin_top = node->computed_style.margin_top;
+        if (margin_top > 0.1f) {
+            LOG_DEBUG("Applying margin-top:", margin_top);
+            // Add spacing (simplified - in real layout, this would affect vertical positioning)
+            for (int i = 0; i < static_cast<int>(margin_top); i++) {
+                addLineBreak();
+            }
+        }
     }
     
     if (node->getType() == NodeType::Element) {
@@ -47,11 +65,27 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
     } else if (node->getType() == NodeType::Text) {
         layoutText(static_cast<TextNode*>(node));
     }
+    
+    // Apply margin-bottom spacing after block elements
+    if (node->getType() == NodeType::Element && 
+        (node->computed_style.display == DisplayType::Block ||
+         node->computed_style.display == DisplayType::ListItem)) {
+        
+        float margin_bottom = node->computed_style.margin_bottom;
+        if (margin_bottom > 0.1f) {
+            LOG_DEBUG("Applying margin-bottom:", margin_bottom);
+            for (int i = 0; i < static_cast<int>(margin_bottom); i++) {
+                addLineBreak();
+            }
+        }
+    }
 }
 
 void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     const std::string& tag = element->getTagName();
     const ComputedStyle& style = element->computed_style;
+    
+    LOG_DEBUG("Layouting element:", tag, "display:", static_cast<int>(style.display));
     
     // Handle special elements
     if (tag == "br") {
@@ -191,6 +225,8 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         current_inline_style_ = new_style;
         
+        LOG_DEBUG("Applied inline styles, bold:", style.bold, "italic:", style.italic);
+        
         // Special handling for <q> tag
         if (tag == "q") {
             current_inline_text_ += L"\"";
@@ -228,14 +264,15 @@ void LayoutEngine::layoutText(TextNode* text) {
     
     wide_text = processWhitespace(wide_text, ws);
     
+    // Apply text-transform
+    if (text->parent && text->parent->getType() == NodeType::Element) {
+        ComputedStyle::TextTransform transform = text->parent->computed_style.text_transform;
+        wide_text = applyTextTransform(wide_text, transform);
+    }
+    
     if (!wide_text.empty()) {
-        // If style changed, flush previous text
-        if (!current_inline_text_.empty()) {
-            // Check if we need to start new element due to style change
-            // For now, just append - proper implementation would track style changes
-        }
-        
         current_inline_text_ += wide_text;
+        LOG_DEBUG("Added text, length:", wide_text.length());
     }
 }
 
@@ -243,6 +280,9 @@ void LayoutEngine::flushInlineContent() {
     if (current_inline_text_.empty()) {
         return;
     }
+    
+    LOG_DEBUG("Flushing inline content, type:", static_cast<int>(current_block_type_), 
+             "length:", current_inline_text_.length());
     
     TextElement elem;
     elem.type = current_block_type_;
@@ -341,6 +381,41 @@ std::wstring LayoutEngine::processWhitespace(const std::wstring& text,
     if (!result.empty() && result.back() == L' ') {
         result.pop_back();
     }
+    
+    return result;
+}
+
+std::wstring LayoutEngine::applyTextTransform(const std::wstring& text,
+                                              ComputedStyle::TextTransform transform) {
+    if (transform == ComputedStyle::TextTransform::None) {
+        return text;
+    }
+    
+    std::wstring result = text;
+    
+    if (transform == ComputedStyle::TextTransform::Uppercase) {
+        for (wchar_t& c : result) {
+            c = std::towupper(c);
+        }
+    } else if (transform == ComputedStyle::TextTransform::Lowercase) {
+        for (wchar_t& c : result) {
+            c = std::towlower(c);
+        }
+    } else if (transform == ComputedStyle::TextTransform::Capitalize) {
+        bool at_word_start = true;
+        for (wchar_t& c : result) {
+            if (std::iswalnum(c)) {
+                if (at_word_start) {
+                    c = std::towupper(c);
+                    at_word_start = false;
+                }
+            } else {
+                at_word_start = true;
+            }
+        }
+    }
+    
+    LOG_DEBUG("Applied text-transform:", static_cast<int>(transform));
     
     return result;
 }
