@@ -31,7 +31,10 @@ bool EpubParser::open(const std::string& filepath) {
         return false;
     }
     
-    parseTOC();
+    if (!parseTOC()) {
+        LOG_WARNING("TOC parsing failed, generating fallback TOC");
+        generateFallbackTOC();
+    }
     
     LOG_INFO("EPUB opened successfully");
     LOG_INFO("Title:", metadata_.title);
@@ -45,6 +48,7 @@ bool EpubParser::open(const std::string& filepath) {
 void EpubParser::close() {
     zip_.close();
     spine_.clear();
+    manifest_.clear();
     image_cache_.clear();
     toc_parser_.clear();
 }
@@ -100,7 +104,7 @@ bool EpubParser::parseOPF() {
     LOG_DEBUG("Parsed metadata - Author:", metadata_.author);
     LOG_DEBUG("Parsed metadata - Language:", metadata_.language);
     
-    std::unordered_map<std::string, SpineItem> manifest;
+    manifest_.clear();
     size_t manifest_start = opf.find("<manifest");
     size_t manifest_end = opf.find("</manifest>", manifest_start);
     
@@ -137,7 +141,10 @@ bool EpubParser::parseOPF() {
                 item.media_type = item_tag.substr(type_pos, type_end - type_pos);
             }
             
-            manifest[item.id] = item;
+            if (!item.id.empty()) {
+                manifest_[item.id] = item;
+            }
+            
             pos = end;
         }
     }
@@ -157,24 +164,35 @@ bool EpubParser::parseOPF() {
             size_t idref_end = spine_section.find("\"", idref_pos);
             std::string idref = spine_section.substr(idref_pos, idref_end - idref_pos);
             
-            if (manifest.find(idref) != manifest.end()) {
-                spine_.push_back(manifest[idref]);
+            if (manifest_.find(idref) != manifest_.end()) {
+                spine_.push_back(manifest_[idref]);
             }
             
             pos = idref_end;
         }
     }
     
-    LOG_INFO("Parsed manifest items:", manifest.size());
+    LOG_INFO("Parsed manifest items:", manifest_.size());
     LOG_INFO("Parsed spine items:", spine_.size());
     
     return !spine_.empty();
 }
 
+std::string EpubParser::findNCXPath() {
+    for (const auto& pair : manifest_) {
+        const SpineItem& item = pair.second;
+        if (item.media_type == "application/x-dtbncx+xml") {
+            LOG_DEBUG("Found NCX in manifest:", item.href);
+            return item.href;
+        }
+    }
+    
+    return "";
+}
+
 bool EpubParser::parseTOC() {
     LOG_DEBUG("Attempting to parse table of contents");
     
-    // Try EPUB3 nav document first
     std::string nav_path = content_dir_ + "nav.xhtml";
     std::string nav_content = zip_.extractTextFile(nav_path);
     
@@ -191,30 +209,113 @@ bool EpubParser::parseTOC() {
         }
     }
     
-    // Try EPUB2 NCX
-    std::string ncx_path;
-    for (const auto& item : spine_) {
-        if (item.media_type == "application/x-dtbncx+xml") {
-            ncx_path = content_dir_ + item.href;
-            break;
+    std::string ncx_href = findNCXPath();
+    std::vector<std::string> ncx_paths;
+    
+    if (!ncx_href.empty()) {
+        ncx_paths.push_back(content_dir_ + ncx_href);
+        ncx_paths.push_back(ncx_href);
+    }
+    
+    ncx_paths.push_back(content_dir_ + "toc.ncx");
+    ncx_paths.push_back("toc.ncx");
+    
+    for (const std::string& ncx_path : ncx_paths) {
+        LOG_DEBUG("Trying NCX path:", ncx_path);
+        std::string ncx_content = zip_.extractTextFile(ncx_path);
+        
+        if (!ncx_content.empty()) {
+            if (toc_parser_.parseNCX(ncx_content)) {
+                LOG_INFO("TOC parsed from NCX:", ncx_path);
+                mapTOCToSpine();
+                return true;
+            }
         }
     }
     
-    if (ncx_path.empty()) {
-        ncx_path = content_dir_ + "toc.ncx";
-    }
-    
-    std::string ncx_content = zip_.extractTextFile(ncx_path);
-    if (!ncx_content.empty()) {
-        if (toc_parser_.parseNCX(ncx_content)) {
-            LOG_INFO("TOC parsed from NCX");
-            mapTOCToSpine();
-            return true;
-        }
-    }
-    
-    LOG_WARNING("No TOC found");
+    LOG_WARNING("No TOC found in standard locations");
     return false;
+}
+
+void EpubParser::generateFallbackTOC() {
+    LOG_INFO("Generating fallback TOC from spine");
+    
+    toc_parser_.clear();
+    
+    for (size_t i = 0; i < spine_.size(); i++) {
+        std::string path = spine_[i].href;
+        
+        while (path.find("../") == 0) {
+            path = path.substr(3);
+        }
+        
+        if (!content_dir_.empty() && path.find(content_dir_) != 0) {
+            path = content_dir_ + path;
+        }
+        
+        std::string html = zip_.extractTextFile(path);
+        if (html.empty()) {
+            path = spine_[i].href;
+            while (path.find("../") == 0) {
+                path = path.substr(3);
+            }
+            html = zip_.extractTextFile(path);
+        }
+        
+        std::string title = tryExtractChapterTitle(html);
+        if (title.empty()) {
+            title = "Chapter " + std::to_string(i + 1);
+        }
+        
+        TOCItem item;
+        item.title = title;
+        item.href = spine_[i].href;
+        item.level = 0;
+        item.spine_index = i;
+        
+        std::vector<TOCItem>& items = const_cast<std::vector<TOCItem>&>(toc_parser_.getItems());
+        items.push_back(item);
+    }
+    
+    LOG_INFO("Generated", spine_.size(), "fallback TOC items");
+}
+
+std::string EpubParser::tryExtractChapterTitle(const std::string& html) {
+    const std::string title_tags[] = {"<title>", "<h1>", "<h2>", "<h3>"};
+    
+    for (const std::string& tag : title_tags) {
+        size_t start = html.find(tag);
+        if (start != std::string::npos) {
+            start += tag.length();
+            
+            std::string end_tag = "</" + tag.substr(1);
+            size_t end = html.find(end_tag, start);
+            
+            if (end != std::string::npos) {
+                std::string title = html.substr(start, end - start);
+                
+                std::string clean;
+                bool in_tag = false;
+                for (char c : title) {
+                    if (c == '<') in_tag = true;
+                    else if (c == '>') in_tag = false;
+                    else if (!in_tag) clean += c;
+                }
+                
+                size_t first = clean.find_first_not_of(" \t\n\r");
+                size_t last = clean.find_last_not_of(" \t\n\r");
+                if (first != std::string::npos && last != std::string::npos) {
+                    clean = clean.substr(first, last - first + 1);
+                }
+                
+                if (!clean.empty() && clean.length() < 100) {
+                    return clean;
+                }
+            }
+        }
+    }
+    
+    return "";
 }
 
 void EpubParser::mapTOCToSpine() {

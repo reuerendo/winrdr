@@ -7,6 +7,7 @@
 #include "toc_parser.h"
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace epub {
 
@@ -48,15 +49,19 @@ private:
     bool parseContainer();
     bool parseOPF();
     bool parseTOC();
+    void generateFallbackTOC();
     
     std::string extractTextFromHTML(const std::string& html);
     std::string findTagContent(const std::string& xml, const std::string& tag);
+    std::string findNCXPath();
+    std::string tryExtractChapterTitle(const std::string& html);
     
     ZipHandler zip_;
     std::string opf_path_;
     std::string content_dir_;
     Metadata metadata_;
     std::vector<SpineItem> spine_;
+    std::unordered_map<std::string, SpineItem> manifest_;
     
     HTMLParser html_parser_;
     ImageCache image_cache_;
