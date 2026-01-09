@@ -25,6 +25,11 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
     // Step 2: Extract and parse CSS
     style_resolver_.clear();
     
+    // Load external CSS files from <link> tags
+    if (zip) {
+        loadExternalStylesheets(document.get(), zip, base_path);
+    }
+    
     // Extract inline <style> tags
     std::vector<ElementNode*> style_elements;
     std::vector<DOMNode*> queue;
@@ -79,6 +84,64 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
     LOG_INFO("HTML parsing complete, elements:", content.size());
     
     return content;
+}
+
+void HTMLParserNew::loadExternalStylesheets(DocumentNode* document, ZipHandler* zip,
+                                           const std::string& base_path) {
+    std::vector<ElementNode*> link_elements;
+    std::vector<DOMNode*> queue;
+    queue.push_back(document);
+    
+    while (!queue.empty()) {
+        DOMNode* node = queue.back();
+        queue.pop_back();
+        
+        if (node->getType() == NodeType::Element) {
+            ElementNode* element = static_cast<ElementNode*>(node);
+            
+            if (element->getTagName() == "link") {
+                std::string rel = element->getAttribute("rel");
+                std::string type = element->getAttribute("type");
+                
+                // Check if this is a stylesheet link
+                if (rel == "stylesheet" || type == "text/css") {
+                    link_elements.push_back(element);
+                }
+            }
+        }
+        
+        for (auto& child : node->children) {
+            queue.push_back(child.get());
+        }
+    }
+    
+    LOG_DEBUG("Found external stylesheets:", link_elements.size());
+    
+    for (ElementNode* link : link_elements) {
+        std::string href = link->getAttribute("href");
+        if (href.empty()) continue;
+        
+        std::string css_path = normalizePath(base_path, href);
+        LOG_DEBUG("Loading external CSS:", css_path);
+        
+        std::string css_content = zip->extractTextFile(css_path);
+        
+        if (css_content.empty()) {
+            // Try without base_path
+            css_path = href;
+            while (css_path.find("../") == 0) {
+                css_path = css_path.substr(3);
+            }
+            css_content = zip->extractTextFile(css_path);
+        }
+        
+        if (!css_content.empty()) {
+            LOG_INFO("Loaded external CSS file:", css_path, "size:", css_content.length());
+            style_resolver_.addStylesheet(css_content);
+        } else {
+            LOG_WARNING("Failed to load CSS file:", css_path);
+        }
+    }
 }
 
 void HTMLParserNew::extractAndLoadImages(DocumentNode* document, ZipHandler* zip,
