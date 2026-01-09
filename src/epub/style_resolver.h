@@ -23,6 +23,17 @@ public:
     void resolveStyles(DocumentNode* document);
 
 private:
+    struct SelectorPart {
+        std::string selector;
+        char combinator;  // ' ' (descendant), '>' (child), '+' (adjacent), '~' (sibling)
+    };
+    
+    struct AttributeMatcher {
+        std::string name;
+        std::string op;     // "exists", "=", "^=", "$=", "*=", "~=", "|="
+        std::string value;
+    };
+    
     void applyDefaultStyles(DOMNode* node);
     int applyCSSRules(DOMNode* node);
     void applyInlineStyle(ElementNode* element);
@@ -33,8 +44,18 @@ private:
     
     std::string removeComments(const std::string& css);
     std::vector<std::string> splitSelectors(const std::string& selector);
-    std::string simplifySelector(const std::string& selector);
+    
+    // Complex selector matching
     bool matchesSelector(ElementNode* element, const std::string& selector);
+    std::vector<SelectorPart> parseComplexSelector(const std::string& selector);
+    bool matchesSimpleSelector(ElementNode* element, const std::string& selector);
+    
+    // Attribute and class matching
+    AttributeMatcher parseAttributeSelector(const std::string& attr_str);
+    bool hasClass(ElementNode* element, const std::string& class_name);
+    bool matchesAttribute(ElementNode* element, const AttributeMatcher& matcher);
+    bool matchesPseudoClass(ElementNode* element, const std::string& pseudo);
+    
     int calculateSpecificity(const std::string& selector);
     
     void applyDeclaration(const std::string& property, const std::string& value, 
