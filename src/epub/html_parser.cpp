@@ -16,18 +16,16 @@ void HTMLParserNew::setImageCache(ImageCache* cache) {
 FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
                                      const std::string& base_path) {
     LOG_INFO("=== Starting HTML parsing ===");
-    LOG_DEBUG("HTML length:", html.length());
-    LOG_DEBUG("Base path:", base_path);
     
     // Step 1: Build DOM tree
     auto document = dom_builder_.parse(html);
     
-    LOG_INFO("DOM tree built, children:", document->children.size());
+    LOG_DEBUG("DOM tree built, children:", document->children.size());
     
     // Step 2: Extract and parse CSS
     style_resolver_.clear();
     
-    // Extract inline <style> tags
+    // Extract inline <style> tags and <link> tags
     std::vector<ElementNode*> style_elements;
     std::vector<ElementNode*> link_elements;
     std::vector<DOMNode*> queue;
@@ -55,8 +53,7 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
         }
     }
     
-    LOG_INFO("Found inline <style> tags:", style_elements.size());
-    LOG_INFO("Found <link> stylesheet tags:", link_elements.size());
+    LOG_DEBUG("Found <style> tags:", style_elements.size(), "<link> stylesheets:", link_elements.size());
     
     // Parse CSS from <style> tags
     for (ElementNode* style_elem : style_elements) {
@@ -69,7 +66,6 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
         }
         
         if (!css.empty()) {
-            LOG_INFO("Parsing inline stylesheet, length:", css.length());
             style_resolver_.addStylesheet(css);
         }
     }
@@ -85,10 +81,7 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
     }
     
     // Step 3: Resolve styles (cascade + compute)
-    LOG_INFO("Resolving styles...");
     style_resolver_.resolveStyles(document.get());
-    
-    LOG_INFO("Styles resolved");
     
     // Step 4: Load images
     if (zip && image_cache_) {
@@ -96,7 +89,6 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
     }
     
     // Step 5: Layout
-    LOG_INFO("Starting layout...");
     FormattedContent content = layout_engine_.layout(document.get(), image_cache_);
     
     LOG_INFO("=== HTML parsing complete, elements:", content.size(), "===");

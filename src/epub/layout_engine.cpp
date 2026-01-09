@@ -25,8 +25,6 @@ FormattedContent LayoutEngine::layout(DocumentNode* document, ImageCache* image_
     current_inline_text_.clear();
     in_inline_context_ = false;
     
-    LOG_INFO("Starting layout, document children:", document->children.size());
-    
     for (auto& child : document->children) {
         layoutNode(child.get(), 0);
     }
@@ -42,22 +40,19 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
     
     // Skip nodes with display:none
     if (node->computed_style.display == DisplayType::None) {
-        LOG_DEBUG("Skipping node with display:none");
         return;
     }
     
-    // Apply margin-top spacing before block elements
+    // Apply margin-top spacing before block elements (converted to line breaks)
     if (node->getType() == NodeType::Element && 
         (node->computed_style.display == DisplayType::Block ||
          node->computed_style.display == DisplayType::ListItem)) {
         
         float margin_top = node->computed_style.margin_top;
-        if (margin_top > 0.1f) {
-            LOG_DEBUG("Applying margin-top:", margin_top);
-            // Add spacing (simplified - in real layout, this would affect vertical positioning)
-            for (int i = 0; i < static_cast<int>(margin_top); i++) {
-                addLineBreak();
-            }
+        // Convert pixels to approximate line breaks (assuming ~20px per line)
+        int line_breaks = static_cast<int>(margin_top / 20.0f);
+        for (int i = 0; i < line_breaks && i < 3; i++) { // Cap at 3 line breaks
+            addLineBreak();
         }
     }
     
@@ -73,11 +68,9 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
          node->computed_style.display == DisplayType::ListItem)) {
         
         float margin_bottom = node->computed_style.margin_bottom;
-        if (margin_bottom > 0.1f) {
-            LOG_DEBUG("Applying margin-bottom:", margin_bottom);
-            for (int i = 0; i < static_cast<int>(margin_bottom); i++) {
-                addLineBreak();
-            }
+        int line_breaks = static_cast<int>(margin_bottom / 20.0f);
+        for (int i = 0; i < line_breaks && i < 3; i++) {
+            addLineBreak();
         }
     }
 }
@@ -85,8 +78,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
 void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     const std::string& tag = element->getTagName();
     const ComputedStyle& style = element->computed_style;
-    
-    LOG_DEBUG("Layouting element:", tag, "display:", static_cast<int>(style.display));
     
     // Handle special elements
     if (tag == "br") {
@@ -226,8 +217,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         current_inline_style_ = new_style;
         
-        LOG_DEBUG("Applied inline styles, bold:", style.bold, "italic:", style.italic);
-        
         // Special handling for <q> tag
         if (tag == "q") {
             current_inline_text_ += L"\"";
@@ -273,7 +262,6 @@ void LayoutEngine::layoutText(TextNode* text) {
     
     if (!wide_text.empty()) {
         current_inline_text_ += wide_text;
-        LOG_DEBUG("Added text, length:", wide_text.length());
     }
 }
 
@@ -281,9 +269,6 @@ void LayoutEngine::flushInlineContent() {
     if (current_inline_text_.empty()) {
         return;
     }
-    
-    LOG_DEBUG("Flushing inline content, type:", static_cast<int>(current_block_type_), 
-             "length:", current_inline_text_.length());
     
     TextElement elem;
     elem.type = current_block_type_;
@@ -415,8 +400,6 @@ std::wstring LayoutEngine::applyTextTransform(const std::wstring& text,
             }
         }
     }
-    
-    LOG_DEBUG("Applied text-transform:", static_cast<int>(transform));
     
     return result;
 }

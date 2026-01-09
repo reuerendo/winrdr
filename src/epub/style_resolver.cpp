@@ -44,8 +44,6 @@ void StyleResolver::addStylesheet(const std::string& css) {
             if (!rule.declarations.empty()) {
                 rules_.push_back(rule);
                 rules_parsed++;
-                LOG_DEBUG("Parsed CSS rule:", rule.selector, "specificity:", rule.specificity, 
-                         "declarations:", rule.declarations.size());
             }
         }
         
@@ -58,7 +56,7 @@ void StyleResolver::addStylesheet(const std::string& css) {
                  return a.specificity < b.specificity;
              });
     
-    LOG_INFO("Stylesheet parsed, total rules:", rules_parsed, "total in memory:", rules_.size());
+    LOG_INFO("Stylesheet parsed, rules added:", rules_parsed);
 }
 
 void StyleResolver::clear() {
@@ -136,7 +134,6 @@ void StyleResolver::parseDeclarations(const std::string& declarations_str,
         
         if (!property.empty() && !value.empty()) {
             out[property] = value;
-            LOG_DEBUG("  Declaration:", property, "=", value);
         }
         
         pos = semicolon + 1;
@@ -149,8 +146,6 @@ void StyleResolver::resolveStyles(DocumentNode* document) {
     // Traverse DOM tree
     std::vector<DOMNode*> queue;
     queue.push_back(document);
-    
-    int nodes_processed = 0;
     
     while (!queue.empty()) {
         DOMNode* node = queue.back();
@@ -167,15 +162,13 @@ void StyleResolver::resolveStyles(DocumentNode* document) {
         
         inheritStyles(node);
         
-        nodes_processed++;
-        
         // Add children to queue
         for (auto& child : node->children) {
             queue.push_back(child.get());
         }
     }
     
-    LOG_INFO("Style resolution complete, nodes processed:", nodes_processed);
+    LOG_INFO("Style resolution complete");
 }
 
 void StyleResolver::applyDefaultStyles(DOMNode* node) {
@@ -335,30 +328,19 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
-    int matched_rules = 0;
-    
     // Apply matching CSS rules in order of specificity
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
-            matched_rules++;
-            LOG_DEBUG("Element", element->getTagName(), "matches selector:", rule.selector);
-            
             for (const auto& decl : rule.declarations) {
                 applyDeclaration(decl.first, decl.second, element->computed_style);
             }
         }
-    }
-    
-    if (matched_rules > 0) {
-        LOG_DEBUG("Applied", matched_rules, "CSS rules to", element->getTagName());
     }
 }
 
 void StyleResolver::applyInlineStyle(ElementNode* element) {
     std::string inline_style = element->getAttribute("style");
     if (inline_style.empty()) return;
-    
-    LOG_DEBUG("Applying inline style to", element->getTagName(), ":", inline_style);
     
     std::unordered_map<std::string, std::string> declarations;
     parseDeclarations(inline_style, declarations);
@@ -625,8 +607,6 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     std::string prop = toLowerCase(trim(property));
     std::string val = toLowerCase(trim(value));
     
-    LOG_DEBUG("    Applying:", prop, "=", val);
-    
     if (prop == "display") {
         style.display = parseDisplay(val);
     }
@@ -672,7 +652,6 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         float multiplier = parseLength(val, 1.0f);
         if (multiplier > 0) {
             style.font_size_multiplier = multiplier;
-            LOG_DEBUG("      Font size multiplier:", multiplier);
         }
     }
     else if (prop == "text-align") {
@@ -695,37 +674,35 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         style.has_background = true;
     }
     else if (prop == "margin-top") {
-        style.margin_top = parseLength(val, 16.0f);
-        LOG_DEBUG("      Margin top:", style.margin_top);
+        style.margin_top = parseLengthToPixels(val);
     }
     else if (prop == "margin-bottom") {
-        style.margin_bottom = parseLength(val, 16.0f);
-        LOG_DEBUG("      Margin bottom:", style.margin_bottom);
+        style.margin_bottom = parseLengthToPixels(val);
     }
     else if (prop == "margin-left") {
-        style.margin_left = parseLength(val, 16.0f);
+        style.margin_left = parseLengthToPixels(val);
     }
     else if (prop == "margin-right") {
-        style.margin_right = parseLength(val, 16.0f);
+        style.margin_right = parseLengthToPixels(val);
     }
     else if (prop == "margin") {
-        float m = parseLength(val, 16.0f);
+        float m = parseLengthToPixels(val);
         style.margin_top = style.margin_bottom = style.margin_left = style.margin_right = m;
     }
     else if (prop == "padding-top") {
-        style.padding_top = parseLength(val, 16.0f);
+        style.padding_top = parseLengthToPixels(val);
     }
     else if (prop == "padding-bottom") {
-        style.padding_bottom = parseLength(val, 16.0f);
+        style.padding_bottom = parseLengthToPixels(val);
     }
     else if (prop == "padding-left") {
-        style.padding_left = parseLength(val, 16.0f);
+        style.padding_left = parseLengthToPixels(val);
     }
     else if (prop == "padding-right") {
-        style.padding_right = parseLength(val, 16.0f);
+        style.padding_right = parseLengthToPixels(val);
     }
     else if (prop == "padding") {
-        float p = parseLength(val, 16.0f);
+        float p = parseLengthToPixels(val);
         style.padding_top = style.padding_bottom = style.padding_left = style.padding_right = p;
     }
     else if (prop == "line-height") {
@@ -746,7 +723,6 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     }
     else if (prop == "letter-spacing") {
         style.letter_spacing = parseLength(val, 1.0f);
-        LOG_DEBUG("      Letter spacing:", style.letter_spacing);
     }
     else if (prop == "text-transform") {
         if (val == "uppercase") {
@@ -779,7 +755,6 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     }
     else if (prop == "text-indent") {
         style.text_indent = parseLength(val, 1.0f);
-        LOG_DEBUG("      Text indent:", style.text_indent);
     }
     else if (prop == "page-break-before") {
         style.page_break_before = parsePageBreak(val);
@@ -800,10 +775,6 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         }
     }
     // Ignore unsupported properties silently
-    else if (prop != "font-kerning" && prop != "font-variant-ligatures" && 
-             prop != "font-variant-numeric" && prop != "font-feature-settings") {
-        LOG_DEBUG("      Unsupported property:", prop);
-    }
 }
 
 DisplayType StyleResolver::parseDisplay(const std::string& value) {
@@ -938,11 +909,42 @@ float StyleResolver::parseLength(const std::string& value, float base_size) {
     if (unit.empty() || unit == "px") {
         return num;
     } else if (unit == "em") {
-        return num;  // Will be multiplied by font size later
+        return num;  // Return as em units (will be multiplied by font size later)
     } else if (unit == "rem") {
-        return num;  // Relative to root font size (16px)
+        return num;  // Return as rem units
     } else if (unit == "%") {
         return num / 100.0f;
+    } else if (unit == "pt") {
+        return num * 1.333f;  // 1pt = 1.333px
+    }
+    
+    return num;
+}
+
+float StyleResolver::parseLengthToPixels(const std::string& value) {
+    if (value.empty()) return 0.0f;
+    
+    // Extract number
+    float num = 0.0f;
+    size_t unit_pos = 0;
+    
+    try {
+        num = std::stof(value, &unit_pos);
+    } catch (...) {
+        return 0.0f;
+    }
+    
+    // Extract unit
+    std::string unit = trim(value.substr(unit_pos));
+    
+    if (unit.empty() || unit == "px") {
+        return num;
+    } else if (unit == "em") {
+        return num * 16.0f;  // Assume 16px base font
+    } else if (unit == "rem") {
+        return num * 16.0f;  // 16px root font size
+    } else if (unit == "%") {
+        return (num / 100.0f) * 16.0f;
     } else if (unit == "pt") {
         return num * 1.333f;  // 1pt = 1.333px
     }

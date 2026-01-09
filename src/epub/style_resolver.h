@@ -51,6 +51,7 @@ private:
     ComputedStyle::PageBreak parsePageBreak(const std::string& value);
     ComputedStyle::Color parseColor(const std::string& value);
     float parseLength(const std::string& value, float base_size);
+    float parseLengthToPixels(const std::string& value);
     
     // Helper functions
     std::vector<std::string> splitSelectors(const std::string& selector);
