@@ -110,6 +110,22 @@ void CSSParser::parseProperty(const std::string& name, const std::string& value,
             style.has_style = true;
         }
     }
+    else if (name_lower == "font-family") {
+        if (value_lower.find("monospace") != std::string::npos ||
+            value_lower.find("courier") != std::string::npos ||
+            value_lower.find("mono") != std::string::npos) {
+            style.text_style = style.text_style | TextStyle::Monospace;
+            style.has_style = true;
+        }
+    }
+    else if (name_lower == "font-size") {
+        if (value_lower.find("small") != std::string::npos ||
+            value_lower.find("0.8") != std::string::npos ||
+            value_lower.find("80%") != std::string::npos) {
+            style.text_style = style.text_style | TextStyle::Small;
+            style.has_style = true;
+        }
+    }
     else if (name_lower == "text-decoration") {
         if (value_lower.find("underline") != std::string::npos) {
             style.text_style = style.text_style | TextStyle::Underline;
@@ -130,6 +146,15 @@ void CSSParser::parseProperty(const std::string& name, const std::string& value,
             style.align = TextAlign::Justify;
         } else {
             style.align = TextAlign::Left;
+        }
+    }
+    else if (name_lower == "vertical-align") {
+        if (value_lower == "sub" || value_lower == "subscript") {
+            style.text_style = style.text_style | TextStyle::Subscript;
+            style.has_style = true;
+        } else if (value_lower == "sup" || value_lower == "super" || value_lower == "superscript") {
+            style.text_style = style.text_style | TextStyle::Superscript;
+            style.has_style = true;
         }
     }
 }

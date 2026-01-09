@@ -36,6 +36,7 @@ private:
     void renderElement(HDC hdc, const epub::TextElement& elem, RECT& rect, int& y_pos);
     
     HFONT createFont(int size, bool bold, bool italic, bool underline, bool strikethrough);
+    HFONT selectFontForStyle(epub::TextStyle style);
     int measureElementHeight(HDC hdc, const epub::TextElement& elem, int width);
     
     void drawText(HDC hdc, const std::wstring& text, RECT& rect, 
@@ -57,6 +58,8 @@ private:
     HFONT bold_font_;
     HFONT italic_font_;
     HFONT bold_italic_font_;
+    HFONT mono_font_;
+    HFONT mono_bold_font_;
     
     epub::ImageCache* image_cache_;
 };

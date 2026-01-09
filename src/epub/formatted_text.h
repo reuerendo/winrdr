@@ -10,7 +10,11 @@ enum class TextStyle {
     Bold = 1 << 0,
     Italic = 1 << 1,
     Underline = 1 << 2,
-    Strikethrough = 1 << 3
+    Strikethrough = 1 << 3,
+    Monospace = 1 << 4,
+    Small = 1 << 5,
+    Subscript = 1 << 6,
+    Superscript = 1 << 7
 };
 
 inline TextStyle operator|(TextStyle a, TextStyle b) {
@@ -44,7 +48,10 @@ enum class ElementType {
     ListItem,
     Quote,
     Image,
-    LineBreak
+    LineBreak,
+    HorizontalRule,
+    CodeBlock,
+    Link
 };
 
 struct TextElement {
@@ -53,6 +60,7 @@ struct TextElement {
     TextStyle style;
     TextAlign align;
     std::string image_id;
+    std::string link_href;
     int list_level;
     
     TextElement() 

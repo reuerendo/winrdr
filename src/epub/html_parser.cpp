@@ -107,18 +107,43 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
     
     context_stack_.push(ctx);
     
-    // Block elements
+    // Block elements - semantic HTML5
     if (tag_lower == "p") {
         ctx.current_element = ElementType::Paragraph;
         ctx.in_paragraph = true;
     }
+    else if (tag_lower == "article" || tag_lower == "section" || tag_lower == "aside" ||
+             tag_lower == "header" || tag_lower == "footer" || tag_lower == "main" ||
+             tag_lower == "figure") {
+        ctx.current_element = ElementType::Paragraph;
+    }
+    else if (tag_lower == "figcaption") {
+        ctx.current_element = ElementType::Text;
+        ctx.current_style = ctx.current_style | TextStyle::Italic | TextStyle::Small;
+    }
+    
+    // Headings
     else if (tag_lower == "h1") ctx.current_element = ElementType::Heading1;
     else if (tag_lower == "h2") ctx.current_element = ElementType::Heading2;
     else if (tag_lower == "h3") ctx.current_element = ElementType::Heading3;
     else if (tag_lower == "h4") ctx.current_element = ElementType::Heading4;
     else if (tag_lower == "h5") ctx.current_element = ElementType::Heading5;
     else if (tag_lower == "h6") ctx.current_element = ElementType::Heading6;
-    else if (tag_lower == "blockquote") ctx.current_element = ElementType::Quote;
+    
+    // Quotes
+    else if (tag_lower == "blockquote") {
+        ctx.current_element = ElementType::Quote;
+    }
+    else if (tag_lower == "q") {
+        // Short inline quote - add opening quote mark
+        TextElement elem;
+        elem.type = ElementType::Text;
+        elem.content = L"\"";
+        elem.style = ctx.current_style;
+        content.push_back(elem);
+    }
+    
+    // Lists
     else if (tag_lower == "li") {
         ctx.current_element = ElementType::ListItem;
     }
@@ -126,18 +151,65 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
         ctx.list_level++;
     }
     
-    // Inline styles
+    // Code and preformatted
+    else if (tag_lower == "code" || tag_lower == "kbd") {
+        ctx.current_style = ctx.current_style | TextStyle::Monospace;
+    }
+    else if (tag_lower == "pre") {
+        ctx.current_element = ElementType::CodeBlock;
+        ctx.current_style = ctx.current_style | TextStyle::Monospace;
+    }
+    
+    // Text styling - bold
     else if (tag_lower == "b" || tag_lower == "strong") {
         ctx.current_style = ctx.current_style | TextStyle::Bold;
     }
-    else if (tag_lower == "i" || tag_lower == "em") {
+    
+    // Text styling - italic
+    else if (tag_lower == "i" || tag_lower == "em" || tag_lower == "cite") {
         ctx.current_style = ctx.current_style | TextStyle::Italic;
     }
-    else if (tag_lower == "u") {
+    
+    // Text styling - underline
+    else if (tag_lower == "u" || tag_lower == "ins") {
         ctx.current_style = ctx.current_style | TextStyle::Underline;
     }
-    else if (tag_lower == "s" || tag_lower == "strike") {
+    
+    // Text styling - strikethrough
+    else if (tag_lower == "s" || tag_lower == "strike" || tag_lower == "del") {
         ctx.current_style = ctx.current_style | TextStyle::Strikethrough;
+    }
+    
+    // Text styling - small
+    else if (tag_lower == "small") {
+        ctx.current_style = ctx.current_style | TextStyle::Small;
+    }
+    
+    // Text styling - sub/sup
+    else if (tag_lower == "sub") {
+        ctx.current_style = ctx.current_style | TextStyle::Subscript | TextStyle::Small;
+    }
+    else if (tag_lower == "sup") {
+        ctx.current_style = ctx.current_style | TextStyle::Superscript | TextStyle::Small;
+    }
+    
+    // Inline containers (span, abbr, ruby - just inherit styles)
+    else if (tag_lower == "span" || tag_lower == "abbr" || tag_lower == "ruby") {
+        // No special handling, just continue with current context
+    }
+    
+    // Links
+    else if (tag_lower == "a") {
+        ctx.current_style = ctx.current_style | TextStyle::Underline;
+        std::string href = extractAttribute(attributes, "href");
+        // Store href if needed for later (could be used for interactive features)
+    }
+    
+    // Horizontal rule
+    else if (tag_lower == "hr") {
+        TextElement elem;
+        elem.type = ElementType::HorizontalRule;
+        content.push_back(elem);
     }
     
     // Line break
@@ -195,10 +267,23 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
     std::string tag_lower = tag;
     std::transform(tag_lower.begin(), tag_lower.end(), tag_lower.begin(), ::tolower);
     
+    // Add closing quote for <q> tag
+    if (tag_lower == "q") {
+        TextElement elem;
+        elem.type = ElementType::Text;
+        elem.content = L"\"";
+        elem.style = ctx.current_style;
+        content.push_back(elem);
+    }
+    
+    // Add line break after block elements
     if (tag_lower == "p" || tag_lower == "h1" || tag_lower == "h2" || 
         tag_lower == "h3" || tag_lower == "h4" || tag_lower == "h5" || 
-        tag_lower == "h6" || tag_lower == "blockquote" || tag_lower == "li") {
-        // Add line break after block element
+        tag_lower == "h6" || tag_lower == "blockquote" || tag_lower == "li" ||
+        tag_lower == "article" || tag_lower == "section" || tag_lower == "aside" ||
+        tag_lower == "header" || tag_lower == "footer" || tag_lower == "main" ||
+        tag_lower == "figure" || tag_lower == "figcaption" || tag_lower == "pre") {
+        
         if (!content.empty() && content.back().type != ElementType::LineBreak) {
             TextElement elem;
             elem.type = ElementType::LineBreak;
