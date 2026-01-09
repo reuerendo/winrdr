@@ -103,17 +103,17 @@ HFONT PageRenderer::createFont(int size, bool bold, bool italic,
 }
 
 HFONT PageRenderer::selectFontForStyle(epub::TextStyle style) {
-    bool bold = epub::hasStyle(style, epub::TextStyle::Bold);
-    bool italic = epub::hasStyle(style, epub::TextStyle::Italic);
-    bool mono = epub::hasStyle(style, epub::TextStyle::Monospace);
+    const bool is_bold = epub::hasStyle(style, epub::TextStyle::Bold);
+    const bool is_italic = epub::hasStyle(style, epub::TextStyle::Italic);
+    const bool is_mono = epub::hasStyle(style, epub::TextStyle::Monospace);
     
-    if (mono) {
-        return bold ? mono_bold_font_ : mono_font_;
+    if (is_mono) {
+        return is_bold ? mono_bold_font_ : mono_font_;
     }
     
-    if (bold && italic) return bold_italic_font_;
-    if (bold) return bold_font_;
-    if (italic) return italic_font_;
+    if (is_bold && is_italic) return bold_italic_font_;
+    if (is_bold) return bold_font_;
+    if (is_italic) return italic_font_;
     return normal_font_;
 }
 
@@ -235,14 +235,14 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
             
             if (epub::hasStyle(elem.style, epub::TextStyle::Small)) {
                 int small_size = static_cast<int>(font_size_ * 0.85);
-                bool bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-                bool italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
-                bool mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
+                const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
+                const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
+                const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
                 
-                if (mono) {
+                if (is_mono) {
                     HFONT small_font = CreateFontW(
-                        small_size, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, 
-                        italic ? TRUE : FALSE, FALSE, FALSE,
+                        small_size, 0, 0, 0, is_bold ? FW_BOLD : FW_NORMAL, 
+                        is_italic ? TRUE : FALSE, FALSE, FALSE,
                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                         DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
                     );
@@ -252,7 +252,7 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
                     SelectObject(hdc, old_font);
                     DeleteObject(small_font);
                 } else {
-                    HFONT small_font = createFont(small_size, bold, italic, false, false);
+                    HFONT small_font = createFont(small_size, is_bold, is_italic, false, false);
                     HFONT old_font = (HFONT)SelectObject(hdc, small_font);
                     DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
                              DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
@@ -437,39 +437,40 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             rect.left += LIST_INDENT * elem.list_level;
             rect.top = y_pos;
             
-            std::wstring bullet = L"\u2022 ";
+            const wchar_t bullet_char = 0x2022;
+            wchar_t bullet_str[3] = {bullet_char, L' ', L'\0'};
             
             HFONT font = selectFontForStyle(elem.style);
             HFONT old_font = (HFONT)SelectObject(hdc, font);
             SetTextColor(hdc, RGB(0, 0, 0));
             
-            DrawTextW(hdc, bullet.c_str(), -1, &rect, DT_NOPREFIX);
+            DrawTextW(hdc, bullet_str, -1, &rect, DT_NOPREFIX);
             
             rect.left += 20;
             
-            bool underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
-            bool strikethrough = epub::hasStyle(elem.style, epub::TextStyle::Strikethrough);
+            const bool has_underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
+            const bool has_strikethrough = epub::hasStyle(elem.style, epub::TextStyle::Strikethrough);
             
-            if (underline || strikethrough) {
-                bool bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-                bool italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
-                bool mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
+            if (has_underline || has_strikethrough) {
+                const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
+                const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
+                const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
                 
                 SelectObject(hdc, old_font);
                 
-                if (mono) {
+                if (is_mono) {
                     HFONT styled_font = CreateFontW(
                         font_size_, 0, 0, 0,
-                        bold ? FW_BOLD : FW_NORMAL,
-                        italic ? TRUE : FALSE,
-                        underline ? TRUE : FALSE,
-                        strikethrough ? TRUE : FALSE,
+                        is_bold ? FW_BOLD : FW_NORMAL,
+                        is_italic ? TRUE : FALSE,
+                        has_underline ? TRUE : FALSE,
+                        has_strikethrough ? TRUE : FALSE,
                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                         DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
                     );
                     old_font = (HFONT)SelectObject(hdc, styled_font);
                 } else {
-                    HFONT styled_font = createFont(font_size_, bold, italic, underline, strikethrough);
+                    HFONT styled_font = createFont(font_size_, is_bold, is_italic, has_underline, has_strikethrough);
                     old_font = (HFONT)SelectObject(hdc, styled_font);
                 }
             }
@@ -480,7 +481,7 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             y_pos += height + LINE_SPACING;
             
             SelectObject(hdc, old_font);
-            if (underline || strikethrough) {
+            if (has_underline || has_strikethrough) {
                 DeleteObject(font);
             }
             break;
@@ -491,8 +492,8 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             rect.right -= QUOTE_INDENT;
             rect.top = y_pos;
             
-            bool bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-            HFONT font = bold ? bold_italic_font_ : italic_font_;
+            const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
+            HFONT font = is_bold ? bold_italic_font_ : italic_font_;
             HFONT old_font = (HFONT)SelectObject(hdc, font);
             
             SetTextColor(hdc, RGB(80, 80, 80));
@@ -511,28 +512,28 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
         case epub::ElementType::Text: {
             rect.top = y_pos;
             
-            bool bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-            bool italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
-            bool underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
-            bool strikethrough = epub::hasStyle(elem.style, epub::TextStyle::Strikethrough);
-            bool mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
-            bool small = epub::hasStyle(elem.style, epub::TextStyle::Small);
+            const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
+            const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
+            const bool has_underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
+            const bool has_strikethrough = epub::hasStyle(elem.style, epub::TextStyle::Strikethrough);
+            const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
+            const bool is_small = epub::hasStyle(elem.style, epub::TextStyle::Small);
             
-            int text_size = small ? static_cast<int>(font_size_ * 0.85) : font_size_;
+            int text_size = is_small ? static_cast<int>(font_size_ * 0.85) : font_size_;
             
             HFONT font;
-            if (mono) {
+            if (is_mono) {
                 font = CreateFontW(
                     text_size, 0, 0, 0,
-                    bold ? FW_BOLD : FW_NORMAL,
-                    italic ? TRUE : FALSE,
-                    underline ? TRUE : FALSE,
-                    strikethrough ? TRUE : FALSE,
+                    is_bold ? FW_BOLD : FW_NORMAL,
+                    is_italic ? TRUE : FALSE,
+                    has_underline ? TRUE : FALSE,
+                    has_strikethrough ? TRUE : FALSE,
                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                     DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
                 );
             } else {
-                font = createFont(text_size, bold, italic, underline, strikethrough);
+                font = createFont(text_size, is_bold, is_italic, has_underline, has_strikethrough);
             }
             
             HFONT old_font = (HFONT)SelectObject(hdc, font);
