@@ -3,10 +3,12 @@
 #include <string>
 #include <vector>
 #include <windows.h>
+#include "../epub/formatted_text.h"
+#include "../epub/image_cache.h"
 
 struct PageBreak {
-    size_t text_offset;
-    size_t text_length;
+    size_t element_start;
+    size_t element_count;
 };
 
 class PageRenderer {
@@ -14,7 +16,9 @@ public:
     PageRenderer();
     ~PageRenderer();
     
-    void setText(const std::string& text);
+    void setContent(const epub::FormattedContent& content);
+    void setImageCache(epub::ImageCache* cache);
+    
     void setViewport(int width, int height, int margin);
     void setFont(const std::wstring& font_name, int font_size);
     
@@ -28,10 +32,18 @@ public:
     void render(HDC hdc);
 
 private:
-    void calculatePages();
-    int measureTextHeight(HDC hdc, const std::wstring& text, int width);
+    void calculatePages(HDC hdc);
+    void renderElement(HDC hdc, const epub::TextElement& elem, RECT& rect, int& y_pos);
     
-    std::wstring text_;
+    HFONT createFont(int size, bool bold, bool italic, bool underline, bool strikethrough);
+    HFONT selectFontForStyle(epub::TextStyle style);
+    int measureElementHeight(HDC hdc, const epub::TextElement& elem, int width);
+    
+    void drawText(HDC hdc, const std::wstring& text, RECT& rect, 
+                  epub::TextAlign align, bool bold, bool italic);
+    void drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos);
+    
+    epub::FormattedContent content_;
     std::vector<PageBreak> pages_;
     size_t current_page_;
     
@@ -41,5 +53,13 @@ private:
     
     std::wstring font_name_;
     int font_size_;
-    HFONT font_handle_;
+    
+    HFONT normal_font_;
+    HFONT bold_font_;
+    HFONT italic_font_;
+    HFONT bold_italic_font_;
+    HFONT mono_font_;
+    HFONT mono_bold_font_;
+    
+    epub::ImageCache* image_cache_;
 };
