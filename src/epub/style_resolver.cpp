@@ -10,27 +10,31 @@ namespace epub {
 StyleResolver::StyleResolver() {}
 
 void StyleResolver::addStylesheet(const std::string& css) {
-    size_t pos = 0;
+    // Remove CSS comments first
+    std::string cleaned_css = removeComments(css);
     
-    while (pos < css.length()) {
+    size_t pos = 0;
+    int rules_parsed = 0;
+    
+    while (pos < cleaned_css.length()) {
         // Skip whitespace
-        while (pos < css.length() && std::isspace(css[pos])) {
+        while (pos < cleaned_css.length() && std::isspace(cleaned_css[pos])) {
             pos++;
         }
         
-        if (pos >= css.length()) break;
+        if (pos >= cleaned_css.length()) break;
         
         // Find selector (everything before {)
-        size_t brace_open = css.find('{', pos);
+        size_t brace_open = cleaned_css.find('{', pos);
         if (brace_open == std::string::npos) break;
         
-        std::string selector = trim(css.substr(pos, brace_open - pos));
+        std::string selector = trim(cleaned_css.substr(pos, brace_open - pos));
         
         // Find declarations (everything between { and })
-        size_t brace_close = css.find('}', brace_open);
+        size_t brace_close = cleaned_css.find('}', brace_open);
         if (brace_close == std::string::npos) break;
         
-        std::string declarations_str = css.substr(brace_open + 1, brace_close - brace_open - 1);
+        std::string declarations_str = cleaned_css.substr(brace_open + 1, brace_close - brace_open - 1);
         
         CSSRule rule;
         rule.selector = selector;
@@ -39,6 +43,8 @@ void StyleResolver::addStylesheet(const std::string& css) {
         
         if (!rule.declarations.empty()) {
             rules_.push_back(rule);
+            rules_parsed++;
+            LOG_DEBUG("CSS rule:", selector, "declarations:", rule.declarations.size());
         }
         
         pos = brace_close + 1;
@@ -49,6 +55,32 @@ void StyleResolver::addStylesheet(const std::string& css) {
              [](const CSSRule& a, const CSSRule& b) {
                  return a.specificity < b.specificity;
              });
+    
+    LOG_INFO("Parsed CSS rules:", rules_parsed, "total rules:", rules_.size());
+}
+
+std::string StyleResolver::removeComments(const std::string& css) {
+    std::string result;
+    size_t pos = 0;
+    
+    while (pos < css.length()) {
+        // Check for comment start
+        if (pos + 1 < css.length() && css[pos] == '/' && css[pos + 1] == '*') {
+            // Find comment end
+            size_t comment_end = css.find("*/", pos + 2);
+            if (comment_end != std::string::npos) {
+                pos = comment_end + 2;
+            } else {
+                // Unclosed comment - skip to end
+                break;
+            }
+        } else {
+            result += css[pos];
+            pos++;
+        }
+    }
+    
+    return result;
 }
 
 void StyleResolver::clear() {
@@ -87,17 +119,23 @@ void StyleResolver::resolveStyles(DocumentNode* document) {
     std::vector<DOMNode*> queue;
     queue.push_back(document);
     
+    int elements_processed = 0;
+    int styles_applied = 0;
+    
     while (!queue.empty()) {
         DOMNode* node = queue.back();
         queue.pop_back();
         
         // Apply styles in order: default -> CSS rules -> inline -> inheritance
         applyDefaultStyles(node);
-        applyCSSRules(node);
+        
+        int applied = applyCSSRules(node);
+        styles_applied += applied;
         
         if (node->getType() == NodeType::Element) {
             ElementNode* element = static_cast<ElementNode*>(node);
             applyInlineStyle(element);
+            elements_processed++;
         }
         
         inheritStyles(node);
@@ -107,6 +145,8 @@ void StyleResolver::resolveStyles(DocumentNode* document) {
             queue.push_back(child.get());
         }
     }
+    
+    LOG_DEBUG("Style resolution: elements:", elements_processed, "CSS rules applied:", styles_applied);
 }
 
 void StyleResolver::applyDefaultStyles(DOMNode* node) {
@@ -261,10 +301,11 @@ void StyleResolver::applyDefaultStyles(DOMNode* node) {
     }
 }
 
-void StyleResolver::applyCSSRules(DOMNode* node) {
-    if (node->getType() != NodeType::Element) return;
+int StyleResolver::applyCSSRules(DOMNode* node) {
+    if (node->getType() != NodeType::Element) return 0;
     
     ElementNode* element = static_cast<ElementNode*>(node);
+    int applied_count = 0;
     
     // Apply matching CSS rules in order of specificity
     for (const CSSRule& rule : rules_) {
@@ -272,8 +313,11 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
             for (const auto& decl : rule.declarations) {
                 applyDeclaration(decl.first, decl.second, element->computed_style);
             }
+            applied_count++;
         }
     }
+    
+    return applied_count;
 }
 
 void StyleResolver::applyInlineStyle(ElementNode* element) {
@@ -294,7 +338,7 @@ void StyleResolver::inheritStyles(DOMNode* node) {
     ComputedStyle& style = node->computed_style;
     ComputedStyle& parent_style = node->parent->computed_style;
     
-    // Inherit text properties if not explicitly set
+    // Inherit font properties if not explicitly set
     // (This is simplified - in real browser, tracking "set" vs "inherited" is complex)
     
     // Inherit font properties
@@ -314,52 +358,107 @@ void StyleResolver::inheritStyles(DOMNode* node) {
 bool StyleResolver::matchesSelector(ElementNode* element, const std::string& selector) {
     std::string sel = trim(selector);
     
-    // Simple selector matching (tag, class, id)
-    // This is simplified - real CSS selector matching is much more complex
-    
     if (sel.empty()) return false;
     
     // Universal selector
     if (sel == "*") return true;
     
-    // Class selector
-    if (sel[0] == '.') {
-        std::string class_name = sel.substr(1);
+    // Parse compound selector (e.g., "p.indent", "div#main", "span.bold.italic")
+    std::string tag_part;
+    std::vector<std::string> classes;
+    std::string id_part;
+    
+    size_t pos = 0;
+    
+    // Extract tag name (if present)
+    if (sel[0] != '.' && sel[0] != '#') {
+        while (pos < sel.length() && sel[pos] != '.' && sel[pos] != '#') {
+            tag_part += sel[pos];
+            pos++;
+        }
+    }
+    
+    // Extract classes and ID
+    while (pos < sel.length()) {
+        if (sel[pos] == '.') {
+            pos++;
+            std::string class_name;
+            while (pos < sel.length() && sel[pos] != '.' && sel[pos] != '#') {
+                class_name += sel[pos];
+                pos++;
+            }
+            if (!class_name.empty()) {
+                classes.push_back(class_name);
+            }
+        } else if (sel[pos] == '#') {
+            pos++;
+            while (pos < sel.length() && sel[pos] != '.' && sel[pos] != '#') {
+                id_part += sel[pos];
+                pos++;
+            }
+        } else {
+            pos++;
+        }
+    }
+    
+    // Check tag name
+    if (!tag_part.empty()) {
+        if (element->getTagName() != toLowerCase(tag_part)) {
+            return false;
+        }
+    }
+    
+    // Check ID
+    if (!id_part.empty()) {
+        if (element->getAttribute("id") != id_part) {
+            return false;
+        }
+    }
+    
+    // Check classes
+    if (!classes.empty()) {
         std::string element_class = element->getAttribute("class");
         
-        // Check if class_name is in element_class (space-separated list)
-        size_t pos = element_class.find(class_name);
-        if (pos != std::string::npos) {
-            bool start_ok = (pos == 0 || std::isspace(element_class[pos - 1]));
-            bool end_ok = (pos + class_name.length() == element_class.length() ||
-                          std::isspace(element_class[pos + class_name.length()]));
-            if (start_ok && end_ok) return true;
+        for (const std::string& class_name : classes) {
+            bool found = false;
+            
+            // Check if class_name is in element_class (space-separated list)
+            size_t search_pos = element_class.find(class_name);
+            if (search_pos != std::string::npos) {
+                bool start_ok = (search_pos == 0 || std::isspace(element_class[search_pos - 1]));
+                bool end_ok = (search_pos + class_name.length() == element_class.length() ||
+                              std::isspace(element_class[search_pos + class_name.length()]));
+                if (start_ok && end_ok) {
+                    found = true;
+                }
+            }
+            
+            if (!found) {
+                return false;
+            }
         }
-        return false;
     }
     
-    // ID selector
-    if (sel[0] == '#') {
-        std::string id = sel.substr(1);
-        return element->getAttribute("id") == id;
-    }
-    
-    // Tag selector
-    return element->getTagName() == toLowerCase(sel);
+    return true;
 }
 
 int StyleResolver::calculateSpecificity(const std::string& selector) {
-    // Simplified specificity: count IDs, classes, and elements
+    // Simplified specificity: count IDs (100), classes (10), and elements (1)
     // Real CSS specificity is more complex
     
     int specificity = 0;
     
+    // Count IDs
     for (char c : selector) {
         if (c == '#') specificity += 100;
-        else if (c == '.') specificity += 10;
     }
     
-    // If no class or ID, it's a tag selector
+    // Count classes
+    for (char c : selector) {
+        if (c == '.') specificity += 10;
+    }
+    
+    // If no class or ID, check if it's a tag selector
     if (specificity == 0 && !selector.empty() && selector[0] != '*') {
         specificity = 1;
     }
@@ -479,6 +578,9 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         } else if (val == "decimal") {
             style.list_style = ComputedStyle::ListStyleType::Decimal;
         }
+    }
+    else if (prop == "text-indent") {
+        style.padding_left = parseLength(val, 16.0f);
     }
 }
 

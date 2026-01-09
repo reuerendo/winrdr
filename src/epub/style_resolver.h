@@ -24,13 +24,14 @@ public:
 
 private:
     void applyDefaultStyles(DOMNode* node);
-    void applyCSSRules(DOMNode* node);
+    int applyCSSRules(DOMNode* node);
     void applyInlineStyle(ElementNode* element);
     void inheritStyles(DOMNode* node);
     
     void parseDeclarations(const std::string& declarations_str,
                           std::unordered_map<std::string, std::string>& out);
     
+    std::string removeComments(const std::string& css);
     bool matchesSelector(ElementNode* element, const std::string& selector);
     int calculateSpecificity(const std::string& selector);
     
