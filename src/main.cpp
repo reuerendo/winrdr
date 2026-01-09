@@ -449,7 +449,7 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
         L"EPUB Reader",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        800, 600,
+        600, 800,
         nullptr, menu, hinstance, nullptr
     );
     
