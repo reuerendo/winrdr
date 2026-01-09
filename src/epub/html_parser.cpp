@@ -107,6 +107,13 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
     
     context_stack_.push(ctx);
     
+    // Skip tags that should not render content
+    if (tag_lower == "script" || tag_lower == "style" || tag_lower == "title" || 
+        tag_lower == "head" || tag_lower == "meta" || tag_lower == "link") {
+        ctx.skip_content = true;
+        return;
+    }
+    
     // Block elements - semantic HTML5
     if (tag_lower == "p") {
         ctx.current_element = ElementType::Paragraph;
@@ -268,7 +275,7 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
     std::transform(tag_lower.begin(), tag_lower.end(), tag_lower.begin(), ::tolower);
     
     // Add closing quote for <q> tag
-    if (tag_lower == "q") {
+    if (tag_lower == "q" && !ctx.skip_content) {
         TextElement elem;
         elem.type = ElementType::Text;
         elem.content = L"\"";
@@ -277,12 +284,12 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
     }
     
     // Add line break after block elements
-    if (tag_lower == "p" || tag_lower == "h1" || tag_lower == "h2" || 
+    if (!ctx.skip_content && (tag_lower == "p" || tag_lower == "h1" || tag_lower == "h2" || 
         tag_lower == "h3" || tag_lower == "h4" || tag_lower == "h5" || 
         tag_lower == "h6" || tag_lower == "blockquote" || tag_lower == "li" ||
         tag_lower == "article" || tag_lower == "section" || tag_lower == "aside" ||
         tag_lower == "header" || tag_lower == "footer" || tag_lower == "main" ||
-        tag_lower == "figure" || tag_lower == "figcaption" || tag_lower == "pre") {
+        tag_lower == "figure" || tag_lower == "figcaption" || tag_lower == "pre")) {
         
         if (!content.empty() && content.back().type != ElementType::LineBreak) {
             TextElement elem;
@@ -303,6 +310,8 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
 
 void HTMLParser::addText(const std::string& text, ParseContext& ctx,
                         FormattedContent& content) {
+    if (ctx.skip_content) return;
+    
     std::string decoded = decodeHTMLEntities(text);
     
     // Skip whitespace-only text
