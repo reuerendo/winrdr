@@ -30,6 +30,10 @@ private:
         bool in_paragraph;
         bool skip_content;
         
+        // For accumulating inline text
+        std::wstring accumulated_text;
+        TextStyle accumulated_style;
+        
         ParseContext() 
             : current_style(TextStyle::Normal)
             , current_align(TextAlign::Left)
@@ -37,6 +41,7 @@ private:
             , list_level(0)
             , in_paragraph(false)
             , skip_content(false)
+            , accumulated_style(TextStyle::Normal)
         {}
     };
     
@@ -52,6 +57,10 @@ private:
     
     void addText(const std::string& text, ParseContext& ctx,
                 FormattedContent& content);
+    
+    bool isBlockElement(const std::string& tag);
+    bool isInlineElement(const std::string& tag);
+    void flushAccumulatedText(ParseContext& ctx, FormattedContent& content);
     
     std::string extractTagName(const std::string& tag_content);
     std::string extractAttribute(const std::string& tag_content, 
