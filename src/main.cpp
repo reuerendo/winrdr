@@ -40,6 +40,7 @@ void UpdateTitle() {
         title += L" - Глава " + std::to_wstring(g_current_chapter + 1) + 
                  L" / " + std::to_wstring(g_parser.getChapterCount());
         
+        // Only show page info if pages are calculated
         if (g_renderer.getPageCount() > 0) {
             title += L" - Страница " + std::to_wstring(g_renderer.getCurrentPage() + 1) +
                      L" / " + std::to_wstring(g_renderer.getPageCount());
@@ -76,7 +77,8 @@ void LoadChapter(size_t index) {
     
     if (g_hwnd_main) {
         InvalidateRect(g_hwnd_main, nullptr, TRUE);
-        UpdateTitle();
+        UpdateWindow(g_hwnd_main);  // Force immediate redraw
+        UpdateTitle();  // Update after redraw
     }
     
     SavePosition();
@@ -235,7 +237,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             
             FillRect(hdc, &rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
             
-            if (g_renderer.getPageCount() > 0) {
+            if (g_parser.getChapterCount() > 0) {
                 g_renderer.render(hdc);
             } else {
                 SetBkMode(hdc, TRANSPARENT);
