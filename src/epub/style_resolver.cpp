@@ -36,15 +36,19 @@ void StyleResolver::addStylesheet(const std::string& css) {
         
         std::string declarations_str = cleaned_css.substr(brace_open + 1, brace_close - brace_open - 1);
         
-        CSSRule rule;
-        rule.selector = selector;
-        rule.specificity = calculateSpecificity(selector);
-        parseDeclarations(declarations_str, rule.declarations);
+        // Split selector by comma (selector groups)
+        std::vector<std::string> selectors = splitSelectors(selector);
         
-        if (!rule.declarations.empty()) {
-            rules_.push_back(rule);
-            rules_parsed++;
-            LOG_DEBUG("CSS rule:", selector, "declarations:", rule.declarations.size());
+        for (const std::string& sel : selectors) {
+            CSSRule rule;
+            rule.selector = trim(sel);
+            rule.specificity = calculateSpecificity(rule.selector);
+            parseDeclarations(declarations_str, rule.declarations);
+            
+            if (!rule.declarations.empty()) {
+                rules_.push_back(rule);
+                rules_parsed++;
+            }
         }
         
         pos = brace_close + 1;
@@ -57,6 +61,36 @@ void StyleResolver::addStylesheet(const std::string& css) {
              });
     
     LOG_INFO("Parsed CSS rules:", rules_parsed, "total rules:", rules_.size());
+}
+
+std::vector<std::string> StyleResolver::splitSelectors(const std::string& selector) {
+    std::vector<std::string> result;
+    std::string current;
+    int bracket_depth = 0;
+    int paren_depth = 0;
+    
+    for (char c : selector) {
+        if (c == '[') bracket_depth++;
+        else if (c == ']') bracket_depth--;
+        else if (c == '(') paren_depth++;
+        else if (c == ')') paren_depth--;
+        else if (c == ',' && bracket_depth == 0 && paren_depth == 0) {
+            std::string trimmed = trim(current);
+            if (!trimmed.empty()) {
+                result.push_back(trimmed);
+            }
+            current.clear();
+            continue;
+        }
+        current += c;
+    }
+    
+    std::string trimmed = trim(current);
+    if (!trimmed.empty()) {
+        result.push_back(trimmed);
+    }
+    
+    return result;
 }
 
 std::string StyleResolver::removeComments(const std::string& css) {
@@ -339,9 +373,6 @@ void StyleResolver::inheritStyles(DOMNode* node) {
     ComputedStyle& parent_style = node->parent->computed_style;
     
     // Inherit font properties if not explicitly set
-    // (This is simplified - in real browser, tracking "set" vs "inherited" is complex)
-    
-    // Inherit font properties
     if (style.font_size_multiplier == 1.0f && parent_style.font_size_multiplier != 1.0f) {
         style.font_size_multiplier = parent_style.font_size_multiplier;
     }
@@ -356,45 +387,67 @@ void StyleResolver::inheritStyles(DOMNode* node) {
 }
 
 bool StyleResolver::matchesSelector(ElementNode* element, const std::string& selector) {
-    std::string sel = trim(selector);
+    // Simplified selector matching - strip pseudo-classes and complex selectors
+    std::string simple_sel = simplifySelector(selector);
     
-    if (sel.empty()) return false;
+    if (simple_sel.empty() || simple_sel == "*") return true;
     
-    // Universal selector
-    if (sel == "*") return true;
-    
-    // Parse compound selector (e.g., "p.indent", "div#main", "span.bold.italic")
+    // Parse compound selector (e.g., "p.indent", "div#main[role]")
     std::string tag_part;
     std::vector<std::string> classes;
     std::string id_part;
+    std::vector<std::pair<std::string, std::string>> attributes;
     
     size_t pos = 0;
     
     // Extract tag name (if present)
-    if (sel[0] != '.' && sel[0] != '#') {
-        while (pos < sel.length() && sel[pos] != '.' && sel[pos] != '#') {
-            tag_part += sel[pos];
+    if (pos < simple_sel.length() && simple_sel[pos] != '.' && simple_sel[pos] != '#' && simple_sel[pos] != '[') {
+        while (pos < simple_sel.length() && simple_sel[pos] != '.' && simple_sel[pos] != '#' && simple_sel[pos] != '[') {
+            tag_part += simple_sel[pos];
             pos++;
         }
     }
     
-    // Extract classes and ID
-    while (pos < sel.length()) {
-        if (sel[pos] == '.') {
+    // Extract classes, ID, and attributes
+    while (pos < simple_sel.length()) {
+        if (simple_sel[pos] == '.') {
             pos++;
             std::string class_name;
-            while (pos < sel.length() && sel[pos] != '.' && sel[pos] != '#') {
-                class_name += sel[pos];
+            while (pos < simple_sel.length() && simple_sel[pos] != '.' && simple_sel[pos] != '#' && simple_sel[pos] != '[') {
+                class_name += simple_sel[pos];
                 pos++;
             }
             if (!class_name.empty()) {
                 classes.push_back(class_name);
             }
-        } else if (sel[pos] == '#') {
+        } else if (simple_sel[pos] == '#') {
             pos++;
-            while (pos < sel.length() && sel[pos] != '.' && sel[pos] != '#') {
-                id_part += sel[pos];
+            while (pos < simple_sel.length() && simple_sel[pos] != '.' && simple_sel[pos] != '#' && simple_sel[pos] != '[') {
+                id_part += simple_sel[pos];
                 pos++;
+            }
+        } else if (simple_sel[pos] == '[') {
+            pos++;
+            std::string attr_str;
+            while (pos < simple_sel.length() && simple_sel[pos] != ']') {
+                attr_str += simple_sel[pos];
+                pos++;
+            }
+            if (pos < simple_sel.length()) pos++; // Skip ]
+            
+            // Parse attribute: [attr] or [attr="value"] or [attr=value]
+            size_t eq_pos = attr_str.find('=');
+            if (eq_pos == std::string::npos) {
+                // Just [attr]
+                attributes.push_back({trim(attr_str), ""});
+            } else {
+                std::string attr_name = trim(attr_str.substr(0, eq_pos));
+                std::string attr_value = trim(attr_str.substr(eq_pos + 1));
+                // Remove quotes if present
+                if (!attr_value.empty() && (attr_value[0] == '"' || attr_value[0] == '\'')) {
+                    attr_value = attr_value.substr(1, attr_value.length() - 2);
+                }
+                attributes.push_back({attr_name, attr_value});
             }
         } else {
             pos++;
@@ -422,7 +475,6 @@ bool StyleResolver::matchesSelector(ElementNode* element, const std::string& sel
         for (const std::string& class_name : classes) {
             bool found = false;
             
-            // Check if class_name is in element_class (space-separated list)
             size_t search_pos = element_class.find(class_name);
             if (search_pos != std::string::npos) {
                 bool start_ok = (search_pos == 0 || std::isspace(element_class[search_pos - 1]));
@@ -439,26 +491,109 @@ bool StyleResolver::matchesSelector(ElementNode* element, const std::string& sel
         }
     }
     
+    // Check attributes
+    for (const auto& attr : attributes) {
+        if (!element->hasAttribute(attr.first)) {
+            return false;
+        }
+        
+        if (!attr.second.empty()) {
+            // Check value too
+            if (element->getAttribute(attr.first) != attr.second) {
+                return false;
+            }
+        }
+    }
+    
     return true;
 }
 
-int StyleResolver::calculateSpecificity(const std::string& selector) {
-    // Simplified specificity: count IDs (100), classes (10), and elements (1)
-    // Real CSS specificity is more complex
+std::string StyleResolver::simplifySelector(const std::string& selector) {
+    // Remove pseudo-classes and pseudo-elements, combinators, keep only last simple selector
     
+    // Find combinators and take only the last part
+    size_t last_combinator = std::string::npos;
+    for (size_t i = 0; i < selector.length(); i++) {
+        if (selector[i] == '>' || selector[i] == '+' || selector[i] == '~') {
+            last_combinator = i;
+        } else if (selector[i] == ' ' && i + 1 < selector.length() && !std::isspace(selector[i + 1])) {
+            // Descendant combinator (space)
+            last_combinator = i;
+        }
+    }
+    
+    std::string simple_sel;
+    if (last_combinator != std::string::npos) {
+        simple_sel = selector.substr(last_combinator + 1);
+    } else {
+        simple_sel = selector;
+    }
+    
+    simple_sel = trim(simple_sel);
+    
+    // Remove pseudo-classes like :not(), :first-child, ::before, :is()
+    std::string result;
+    size_t pos = 0;
+    
+    while (pos < simple_sel.length()) {
+        if (simple_sel[pos] == ':') {
+            // Skip everything until we hit a space, comma, or end
+            // But need to handle :not(...) with balanced parens
+            if (pos + 1 < simple_sel.length() && simple_sel[pos + 1] == ':') {
+                // Pseudo-element like ::before - skip two colons
+                pos += 2;
+            } else {
+                pos++; // Skip single colon
+            }
+            
+            // Skip pseudo-class name
+            while (pos < simple_sel.length() && (std::isalnum(simple_sel[pos]) || simple_sel[pos] == '-')) {
+                pos++;
+            }
+            
+            // If there's a parenthesis, skip content
+            if (pos < simple_sel.length() && simple_sel[pos] == '(') {
+                int paren_depth = 1;
+                pos++;
+                while (pos < simple_sel.length() && paren_depth > 0) {
+                    if (simple_sel[pos] == '(') paren_depth++;
+                    else if (simple_sel[pos] == ')') paren_depth--;
+                    pos++;
+                }
+            }
+        } else {
+            result += simple_sel[pos];
+            pos++;
+        }
+    }
+    
+    return trim(result);
+}
+
+int StyleResolver::calculateSpecificity(const std::string& selector) {
+    // Simplified specificity
     int specificity = 0;
     
-    // Count IDs
+    // Count IDs (100 points each)
     for (char c : selector) {
         if (c == '#') specificity += 100;
     }
     
-    // Count classes
+    // Count classes and attributes (10 points each)
     for (char c : selector) {
-        if (c == '.') specificity += 10;
+        if (c == '.' || c == '[') specificity += 10;
     }
     
-    // If no class or ID, check if it's a tag selector
+    // Count pseudo-classes (10 points each)
+    size_t pos = 0;
+    while ((pos = selector.find(':', pos)) != std::string::npos) {
+        if (pos + 1 < selector.length() && selector[pos + 1] != ':') {
+            specificity += 10;
+        }
+        pos++;
+    }
+    
+    // Elements (1 point each) - rough estimate
     if (specificity == 0 && !selector.empty() && selector[0] != '*') {
         specificity = 1;
     }

@@ -32,6 +32,8 @@ private:
                           std::unordered_map<std::string, std::string>& out);
     
     std::string removeComments(const std::string& css);
+    std::vector<std::string> splitSelectors(const std::string& selector);
+    std::string simplifySelector(const std::string& selector);
     bool matchesSelector(ElementNode* element, const std::string& selector);
     int calculateSpecificity(const std::string& selector);
     
