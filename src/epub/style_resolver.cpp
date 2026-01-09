@@ -44,6 +44,11 @@ void StyleResolver::addStylesheet(const std::string& css) {
             if (!rule.declarations.empty()) {
                 rules_.push_back(rule);
                 rules_parsed++;
+                
+                // Log first few rules to debug
+                if (rules_parsed <= 10) {
+                    LOG_DEBUG("CSS rule:", rule.selector, "->", rule.declarations.size(), "props");
+                }
             }
         }
         
@@ -328,13 +333,32 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
+    // Debug: log first few elements to see what's being processed
+    static int debug_count = 0;
+    if (debug_count < 5) {
+        LOG_DEBUG("Processing element:", element->getTagName(), 
+                 "class:", element->getAttribute("class"),
+                 "id:", element->getAttribute("id"));
+        debug_count++;
+    }
+    
+    int matched = 0;
+    
     // Apply matching CSS rules in order of specificity
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
+            matched++;
+            if (debug_count < 10) {
+                LOG_DEBUG("  MATCH:", rule.selector);
+            }
             for (const auto& decl : rule.declarations) {
                 applyDeclaration(decl.first, decl.second, element->computed_style);
             }
         }
+    }
+    
+    if (debug_count < 10 && matched > 0) {
+        LOG_DEBUG("  Applied", matched, "rules to", element->getTagName());
     }
 }
 
@@ -356,15 +380,10 @@ void StyleResolver::inheritStyles(DOMNode* node) {
     ComputedStyle& style = node->computed_style;
     ComputedStyle& parent_style = node->parent->computed_style;
     
-    // Inherit text properties if not explicitly set
-    // (This is simplified - in real browser, tracking "set" vs "inherited" is complex)
+    // Only inherit truly inheritable properties
+    // text-transform, margins, padding do NOT inherit
     
-    // Inherit font properties
-    if (style.font_size_multiplier == 1.0f && parent_style.font_size_multiplier != 1.0f) {
-        style.font_size_multiplier = parent_style.font_size_multiplier;
-    }
-    
-    // Inherit text color
+    // Inherit text color (inheritable)
     if (style.text_color.r == 0 && style.text_color.g == 0 && style.text_color.b == 0) {
         if (parent_style.text_color.r != 0 || parent_style.text_color.g != 0 || 
             parent_style.text_color.b != 0) {
@@ -372,10 +391,13 @@ void StyleResolver::inheritStyles(DOMNode* node) {
         }
     }
     
-    // Inherit font family
+    // Inherit font family (inheritable)
     if (style.font_family.empty() && !parent_style.font_family.empty()) {
         style.font_family = parent_style.font_family;
     }
+    
+    // Note: font-size, text-transform, margins, padding are NOT inherited
+    // They are applied only when explicitly set
 }
 
 bool StyleResolver::matchesSelector(ElementNode* element, const std::string& selector) {
@@ -541,28 +563,41 @@ bool StyleResolver::matchesAttributeSelector(ElementNode* element, const std::st
 
 bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::string& selector) {
     // Simplified complex selector matching
-    // Supports descendant combinator (space) and child combinator (>)
+    // Handle child combinator (>) before descendant combinator (space)
     
-    // Split by > (child combinator)
-    if (selector.find('>') != std::string::npos) {
-        size_t pos = selector.rfind('>');
-        std::string right = trim(selector.substr(pos + 1));
-        std::string left = trim(selector.substr(0, pos));
-        
-        if (!matchesSimpleSelector(element, right)) return false;
-        if (!element->parent) return false;
-        
-        if (element->parent->getType() == NodeType::Element) {
-            return matchesSelector(static_cast<ElementNode*>(element->parent), left);
+    // Find rightmost combinator
+    size_t last_gt = selector.rfind('>');
+    size_t last_space = std::string::npos;
+    
+    // Find last space that's not inside brackets or after '>'
+    for (int i = static_cast<int>(selector.length()) - 1; i >= 0; i--) {
+        if (selector[i] == ' ') {
+            // Make sure it's not right after '>' or before '>'
+            bool after_gt = (i > 0 && selector[i-1] == '>');
+            bool before_gt = (i < static_cast<int>(selector.length()) - 1 && selector[i+1] == '>');
+            
+            if (!after_gt && !before_gt && (last_gt == std::string::npos || i < static_cast<int>(last_gt))) {
+                last_space = i;
+                break;
+            }
         }
-        return false;
     }
     
-    // Split by space (descendant combinator)
-    if (selector.find(' ') != std::string::npos) {
-        size_t pos = selector.rfind(' ');
-        std::string right = trim(selector.substr(pos + 1));
-        std::string left = trim(selector.substr(0, pos));
+    // Handle > combinator
+    if (last_gt != std::string::npos && (last_space == std::string::npos || last_gt > last_space)) {
+        std::string right = trim(selector.substr(last_gt + 1));
+        std::string left = trim(selector.substr(0, last_gt));
+        
+        if (!matchesSimpleSelector(element, right)) return false;
+        if (!element->parent || element->parent->getType() != NodeType::Element) return false;
+        
+        return matchesSelector(static_cast<ElementNode*>(element->parent), left);
+    }
+    
+    // Handle descendant combinator (space)
+    if (last_space != std::string::npos) {
+        std::string right = trim(selector.substr(last_space + 1));
+        std::string left = trim(selector.substr(0, last_space));
         
         if (!matchesSimpleSelector(element, right)) return false;
         
@@ -579,6 +614,7 @@ bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::stri
         return false;
     }
     
+    // No combinators found, treat as simple selector
     return matchesSimpleSelector(element, selector);
 }
 

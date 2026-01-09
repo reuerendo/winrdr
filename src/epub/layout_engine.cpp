@@ -254,11 +254,9 @@ void LayoutEngine::layoutText(TextNode* text) {
     
     wide_text = processWhitespace(wide_text, ws);
     
-    // Apply text-transform
-    if (text->parent && text->parent->getType() == NodeType::Element) {
-        ComputedStyle::TextTransform transform = text->parent->computed_style.text_transform;
-        wide_text = applyTextTransform(wide_text, transform);
-    }
+    // DON'T apply text-transform here - it should only apply to specific elements
+    // text-transform is NOT inherited in our implementation
+    // It will be applied only if explicitly set on the parent element
     
     if (!wide_text.empty()) {
         current_inline_text_ += wide_text;
