@@ -13,6 +13,8 @@ PageRenderer g_renderer;
 size_t g_current_chapter = 0;
 HWND g_hwnd_main = nullptr;
 std::string g_current_file;
+HWND g_toc_window = nullptr;
+std::vector<size_t> g_toc_chapter_indices;
 
 std::wstring utf8_to_wstring(const std::string& str) {
     if (str.empty()) return std::wstring();
@@ -77,11 +79,69 @@ void LoadChapter(size_t index) {
     
     if (g_hwnd_main) {
         InvalidateRect(g_hwnd_main, nullptr, TRUE);
-        UpdateWindow(g_hwnd_main);  // Force immediate redraw
-        UpdateTitle();  // Update after redraw
+        UpdateWindow(g_hwnd_main);
+        UpdateTitle();
     }
     
-    SavePosition();
+    // Don't save here - will be saved after goToPage or navigation
+}
+
+LRESULT CALLBACK TOCWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    switch (msg) {
+        case WM_SIZE: {
+            HWND listbox = GetDlgItem(hwnd, 1001);
+            if (listbox) {
+                RECT rect;
+                GetClientRect(hwnd, &rect);
+                SetWindowPos(listbox, NULL, 0, 0, rect.right, rect.bottom, 
+                           SWP_NOZORDER | SWP_NOMOVE);
+            }
+            break;
+        }
+        
+        case WM_KEYDOWN:
+            if (wparam == VK_ESCAPE) {
+                DestroyWindow(hwnd);
+                return 0;
+            } else if (wparam == VK_RETURN) {
+                HWND listbox = GetDlgItem(hwnd, 1001);
+                int sel = (int)SendMessageW(listbox, LB_GETCURSEL, 0, 0);
+                if (sel >= 0 && sel < (int)g_toc_chapter_indices.size()) {
+                    size_t chapter = g_toc_chapter_indices[sel];
+                    DestroyWindow(hwnd);
+                    LoadChapter(chapter);
+                    SavePosition();
+                }
+                return 0;
+            }
+            break;
+        
+        case WM_COMMAND:
+            if (LOWORD(wparam) == 1001 && HIWORD(wparam) == LBN_DBLCLK) {
+                HWND listbox = GetDlgItem(hwnd, 1001);
+                int sel = (int)SendMessageW(listbox, LB_GETCURSEL, 0, 0);
+                if (sel >= 0 && sel < (int)g_toc_chapter_indices.size()) {
+                    size_t chapter = g_toc_chapter_indices[sel];
+                    DestroyWindow(hwnd);
+                    LoadChapter(chapter);
+                    SavePosition();
+                }
+            }
+            break;
+            
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+            
+        case WM_DESTROY:
+            g_toc_window = nullptr;
+            g_toc_chapter_indices.clear();
+            EnableWindow(g_hwnd_main, TRUE);
+            SetFocus(g_hwnd_main);
+            return 0;
+    }
+    
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 void ShowTOC() {
@@ -93,50 +153,66 @@ void ShowTOC() {
         return;
     }
     
-    // Create TOC dialog
-    HWND dlg = CreateWindowExW(
+    if (g_toc_window) {
+        SetFocus(g_toc_window);
+        return;
+    }
+    
+    // Register window class for TOC
+    static bool class_registered = false;
+    if (!class_registered) {
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = TOCWindowProc;
+        wc.hInstance = GetModuleHandle(NULL);
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"TOCWindowClass";
+        RegisterClassW(&wc);
+        class_registered = true;
+    }
+    
+    // Create TOC window
+    g_toc_window = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
-        WC_LISTBOXW,
+        L"TOCWindowClass",
         L"Оглавление",
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         100, 100, 600, 400,
-        g_hwnd_main, (HMENU)1001, GetModuleHandle(NULL), NULL
+        g_hwnd_main, NULL, GetModuleHandle(NULL), NULL
     );
     
-    if (!dlg) return;
+    if (!g_toc_window) return;
+    
+    // Create listbox inside TOC window
+    HWND listbox = CreateWindowExW(
+        0,
+        WC_LISTBOXW,
+        NULL,
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS,
+        0, 0, 600, 400,
+        g_toc_window, (HMENU)1001, GetModuleHandle(NULL), NULL
+    );
+    
+    if (!listbox) {
+        DestroyWindow(g_toc_window);
+        return;
+    }
+    
+    // Set default GUI font for listbox
+    SendMessageW(listbox, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
     
     // Add TOC items
+    g_toc_chapter_indices.clear();
     for (const auto& item : toc) {
         std::wstring indent(item.level * 2, L' ');
         std::wstring text = indent + utf8_to_wstring(item.title);
-        SendMessageW(dlg, LB_ADDSTRING, 0, (LPARAM)text.c_str());
-        SendMessageW(dlg, LB_SETITEMDATA, SendMessageW(dlg, LB_GETCOUNT, 0, 0) - 1, 
-                    (LPARAM)item.spine_index);
+        SendMessageW(listbox, LB_ADDSTRING, 0, (LPARAM)text.c_str());
+        g_toc_chapter_indices.push_back(item.spine_index);
     }
     
-    ShowWindow(dlg, SW_SHOW);
-    UpdateWindow(dlg);
-    
-    // Simple message loop for dialog
-    MSG msg;
-    while (GetMessage(&msg, NULL, 0, 0)) {
-        if (msg.hwnd == dlg) {
-            if (msg.message == WM_COMMAND && HIWORD(msg.wParam) == LBN_DBLCLK) {
-                int sel = (int)SendMessageW(dlg, LB_GETCURSEL, 0, 0);
-                if (sel != LB_ERR) {
-                    size_t chapter = (size_t)SendMessageW(dlg, LB_GETITEMDATA, sel, 0);
-                    DestroyWindow(dlg);
-                    LoadChapter(chapter);
-                    break;
-                }
-            } else if (msg.message == WM_CLOSE || msg.message == WM_DESTROY) {
-                DestroyWindow(dlg);
-                break;
-            }
-        }
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
+    EnableWindow(g_hwnd_main, FALSE);
+    ShowWindow(g_toc_window, SW_SHOW);
+    SetFocus(listbox);
 }
 
 void OpenFile() {
@@ -168,9 +244,14 @@ void OpenFile() {
             if (pos.chapter_index < g_parser.getChapterCount()) {
                 LoadChapter(pos.chapter_index);
                 g_renderer.goToPage(pos.page_index);
+                InvalidateRect(g_hwnd_main, nullptr, TRUE);
+                UpdateWindow(g_hwnd_main);
+                UpdateTitle();
+                SavePosition();  // Save after restoring position
                 LOG_INFO("Restored position:", pos.chapter_index, pos.page_index);
             } else {
                 LoadChapter(0);
+                SavePosition();
             }
         } else {
             LOG_ERROR("Failed to open EPUB file:", path);
@@ -185,12 +266,14 @@ void OpenFile() {
 void NextChapter() {
     if (g_current_chapter + 1 < g_parser.getChapterCount()) {
         LoadChapter(g_current_chapter + 1);
+        SavePosition();
     }
 }
 
 void PrevChapter() {
     if (g_current_chapter > 0) {
         LoadChapter(g_current_chapter - 1);
+        SavePosition();
     }
 }
 
@@ -213,7 +296,12 @@ void PrevPage() {
         if (g_current_chapter > 0) {
             PrevChapter();
             // Go to last page of previous chapter
-            while (g_renderer.nextPage()) {}
+            if (g_renderer.getPageCount() > 0) {
+                g_renderer.goToPage(g_renderer.getPageCount() - 1);
+                InvalidateRect(g_hwnd_main, nullptr, TRUE);
+                UpdateTitle();
+                SavePosition();
+            }
         }
     }
 }
