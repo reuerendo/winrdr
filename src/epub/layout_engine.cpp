@@ -1,6 +1,7 @@
 #include "layout_engine.h"
 #include "../utils/logger.h"
 #include <algorithm>
+#include <cwctype>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -395,18 +396,18 @@ std::wstring LayoutEngine::applyTextTransform(const std::wstring& text,
     
     if (transform == ComputedStyle::TextTransform::Uppercase) {
         for (wchar_t& c : result) {
-            c = std::towupper(c);
+            c = towupper(c);
         }
     } else if (transform == ComputedStyle::TextTransform::Lowercase) {
         for (wchar_t& c : result) {
-            c = std::towlower(c);
+            c = towlower(c);
         }
     } else if (transform == ComputedStyle::TextTransform::Capitalize) {
         bool at_word_start = true;
         for (wchar_t& c : result) {
-            if (std::iswalnum(c)) {
+            if (iswalnum(c)) {
                 if (at_word_start) {
-                    c = std::towupper(c);
+                    c = towupper(c);
                     at_word_start = false;
                 }
             } else {
