@@ -70,7 +70,6 @@ void PageRenderer::setFont(const std::wstring& font_name, int font_size) {
     italic_font_ = createFont(font_size_, false, true, false, false);
     bold_italic_font_ = createFont(font_size_, true, true, false, false);
     
-    // Create monospace fonts (Courier New)
     mono_font_ = CreateFontW(
         font_size_, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -148,7 +147,6 @@ void PageRenderer::calculatePages(HDC hdc) {
         current_height += elem_height;
     }
     
-    // Last page
     if (elem_start < content_.size()) {
         PageBreak page;
         page.element_start = elem_start;
@@ -209,7 +207,7 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
             HFONT old_font = (HFONT)SelectObject(hdc, mono_font_);
             RECT rect = {0, 0, width, 0};
             DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                     DT_CALCRECT | DT_NOPREFIX);  // No wordbreak for code
+                     DT_CALCRECT | DT_NOPREFIX);
             SelectObject(hdc, old_font);
             return rect.bottom + PARAGRAPH_SPACING;
         }
@@ -235,7 +233,6 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
             
             HFONT font = selectFontForStyle(elem.style);
             
-            // Adjust size for small text
             if (epub::hasStyle(elem.style, epub::TextStyle::Small)) {
                 int small_size = static_cast<int>(font_size_ * 0.85);
                 bool bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
@@ -360,7 +357,6 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             break;
             
         case epub::ElementType::HorizontalRule: {
-            // Draw horizontal line
             HPEN pen = CreatePen(PS_SOLID, HR_HEIGHT, RGB(128, 128, 128));
             HPEN old_pen = (HPEN)SelectObject(hdc, pen);
             
@@ -405,18 +401,15 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
         }
         
         case epub::ElementType::CodeBlock: {
-            // Draw background for code block
             RECT code_rect = rect;
             code_rect.top = y_pos;
-            code_rect.bottom = y_pos + 1000;  // Temp large value
+            code_rect.bottom = y_pos + 1000;
             
             HFONT old_font = (HFONT)SelectObject(hdc, mono_font_);
             
-            // Measure actual height
             DrawTextW(hdc, elem.content.c_str(), -1, &code_rect, 
                      DT_CALCRECT | DT_NOPREFIX);
             
-            // Draw light gray background
             code_rect.left -= 5;
             code_rect.right += 5;
             code_rect.top -= 3;
@@ -426,7 +419,6 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             FillRect(hdc, &code_rect, brush);
             DeleteObject(brush);
             
-            // Draw text
             code_rect.left += 5;
             code_rect.right -= 5;
             code_rect.top += 3;
@@ -445,8 +437,7 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             rect.left += LIST_INDENT * elem.list_level;
             rect.top = y_pos;
             
-            // Draw bullet
-            std::wstring bullet = L"• ";
+            std::wstring bullet = L"\u2022 ";
             
             HFONT font = selectFontForStyle(elem.style);
             HFONT old_font = (HFONT)SelectObject(hdc, font);
@@ -454,7 +445,6 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             
             DrawTextW(hdc, bullet.c_str(), -1, &rect, DT_NOPREFIX);
             
-            // Draw text
             rect.left += 20;
             
             bool underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
@@ -547,7 +537,6 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             
             HFONT old_font = (HFONT)SelectObject(hdc, font);
             
-            // Links are blue
             if (elem.type == epub::ElementType::Link) {
                 SetTextColor(hdc, RGB(0, 0, 255));
             } else {
@@ -601,7 +590,6 @@ void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, i
     int draw_width = static_cast<int>(img_data->width * scale);
     int draw_height = static_cast<int>(img_data->height * scale);
     
-    // Initialize GDI+
     static bool gdiplus_initialized = false;
     static ULONG_PTR gdiplusToken;
     
@@ -611,7 +599,6 @@ void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, i
         gdiplus_initialized = true;
     }
     
-    // Create bitmap from pixel data
     Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(
         img_data->width, 
         img_data->height,
@@ -626,30 +613,28 @@ void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, i
                         img_data->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB,
                         &bitmapData);
         
-        // Copy pixel data (convert RGB to BGR for Windows)
         for (int y = 0; y < img_data->height; y++) {
             unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
             const unsigned char* src = img_data->pixels.data() + y * img_data->width * img_data->channels;
             
             for (int x = 0; x < img_data->width; x++) {
                 if (img_data->channels == 4) {
-                    dest[x * 4 + 0] = src[x * 4 + 2]; // B
-                    dest[x * 4 + 1] = src[x * 4 + 1]; // G
-                    dest[x * 4 + 2] = src[x * 4 + 0]; // R
-                    dest[x * 4 + 3] = src[x * 4 + 3]; // A
+                    dest[x * 4 + 0] = src[x * 4 + 2];
+                    dest[x * 4 + 1] = src[x * 4 + 1];
+                    dest[x * 4 + 2] = src[x * 4 + 0];
+                    dest[x * 4 + 3] = src[x * 4 + 3];
                 } else {
-                    dest[x * 3 + 0] = src[x * 3 + 2]; // B
-                    dest[x * 3 + 1] = src[x * 3 + 1]; // G
-                    dest[x * 3 + 2] = src[x * 3 + 0]; // R
+                    dest[x * 3 + 0] = src[x * 3 + 2];
+                    dest[x * 3 + 1] = src[x * 3 + 1];
+                    dest[x * 3 + 2] = src[x * 3 + 0];
                 }
             }
         }
         
         bitmap->UnlockBits(&bitmapData);
         
-        // Draw scaled bitmap
         Gdiplus::Graphics graphics(hdc);
-        int x_pos = rect.left + (content_width - draw_width) / 2; // Center image
+        int x_pos = rect.left + (content_width - draw_width) / 2;
         
         graphics.DrawImage(bitmap, x_pos, y_pos, draw_width, draw_height);
         
