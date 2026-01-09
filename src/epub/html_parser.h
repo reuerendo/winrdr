@@ -51,6 +51,8 @@ private:
     void addText(const std::string& text, ParseContext& ctx,
                 FormattedContent& content);
     
+    bool isBlockElement(const std::string& tag) const;
+    
     std::string extractTagName(const std::string& tag_content);
     std::string extractAttribute(const std::string& tag_content, 
                                  const std::string& attr_name);

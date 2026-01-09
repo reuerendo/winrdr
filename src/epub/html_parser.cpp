@@ -94,6 +94,19 @@ void HTMLParser::parseNode(const std::string& html, size_t& pos,
     }
 }
 
+bool HTMLParser::isBlockElement(const std::string& tag) const {
+    return tag == "p" || 
+           tag == "h1" || tag == "h2" || tag == "h3" || 
+           tag == "h4" || tag == "h5" || tag == "h6" || 
+           tag == "blockquote" || 
+           tag == "li" ||
+           tag == "article" || tag == "section" || 
+           tag == "aside" || tag == "header" || 
+           tag == "footer" || tag == "main" ||
+           tag == "figure" || tag == "figcaption" || 
+           tag == "pre" || tag == "div";
+}
+
 void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attributes,
                                ParseContext& ctx, FormattedContent& content,
                                ZipHandler* zip, const std::string& base_path) {
@@ -105,6 +118,9 @@ void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attrib
     if (tag_lower == "p") {
         ctx.current_element = ElementType::Paragraph;
         ctx.in_paragraph = true;
+    }
+    else if (tag_lower == "div") {
+        ctx.current_element = ElementType::Paragraph;
     }
     else if (tag_lower == "article" || tag_lower == "section" || tag_lower == "aside" ||
              tag_lower == "header" || tag_lower == "footer" || tag_lower == "main" ||
@@ -233,20 +249,9 @@ void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
         content.push_back(elem);
     }
     
-    // Only add line breaks after block-level elements
-    const bool is_block_element = 
-        tag_lower == "p" || 
-        tag_lower == "h1" || tag_lower == "h2" || tag_lower == "h3" || 
-        tag_lower == "h4" || tag_lower == "h5" || tag_lower == "h6" || 
-        tag_lower == "blockquote" || 
-        tag_lower == "li" ||
-        tag_lower == "article" || tag_lower == "section" || 
-        tag_lower == "aside" || tag_lower == "header" || 
-        tag_lower == "footer" || tag_lower == "main" ||
-        tag_lower == "figure" || tag_lower == "figcaption" || 
-        tag_lower == "pre";
+    const bool is_block = isBlockElement(tag_lower);
     
-    if (is_block_element) {
+    if (is_block) {
         if (!content.empty() && content.back().type != ElementType::LineBreak) {
             TextElement elem;
             elem.type = ElementType::LineBreak;
@@ -278,14 +283,33 @@ void HTMLParser::addText(const std::string& text, ParseContext& ctx,
     
     if (!has_content) return;
     
-    TextElement elem;
-    elem.type = ctx.current_element;
-    elem.content = utf8ToWide(decoded);
-    elem.style = ctx.current_style;
-    elem.align = ctx.current_align;
-    elem.list_level = ctx.list_level;
-    
-    content.push_back(elem);
+    // Check if we can merge with previous text element
+    if (!content.empty() && 
+        content.back().type == ElementType::Text &&
+        content.back().style == ctx.current_style &&
+        content.back().align == ctx.current_align &&
+        content.back().list_level == ctx.list_level &&
+        ctx.current_element == ElementType::Text) {
+        
+        // Merge with previous element
+        std::wstring new_text = utf8ToWide(decoded);
+        if (!content.back().content.empty() && 
+            content.back().content.back() != L' ' && 
+            new_text[0] != L' ') {
+            content.back().content += L' ';
+        }
+        content.back().content += new_text;
+    } else {
+        // Create new element
+        TextElement elem;
+        elem.type = ctx.current_element;
+        elem.content = utf8ToWide(decoded);
+        elem.style = ctx.current_style;
+        elem.align = ctx.current_align;
+        elem.list_level = ctx.list_level;
+        
+        content.push_back(elem);
+    }
 }
 
 std::string HTMLParser::extractTagName(const std::string& tag_content) {
