@@ -2,7 +2,7 @@
 
 #include "zip_handler.h"
 #include "formatted_text.h"
-#include "html_parser_new.h"
+#include "html_parser.h"
 #include "image_cache.h"
 #include "toc_parser.h"
 #include <string>
