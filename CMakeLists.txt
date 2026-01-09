@@ -18,6 +18,10 @@ set(SOURCES
     src/epub/css_parser.cpp
     src/epub/toc_parser.cpp
     src/epub/reading_position.cpp
+	src/epub/dom_builder.cpp
+	src/epub/dom_node.cpp
+	src/epub/style_resolver.cpp
+	src/epub/layout_engine.cpp
     src/render/page_renderer.cpp
     src/utils/logger.cpp
 )
@@ -31,6 +35,10 @@ set(HEADERS
     src/epub/css_parser.h
     src/epub/toc_parser.h
     src/epub/reading_position.h
+	src/epub/dom_builder.h
+	src/epub/dom_node.h
+	src/epub/style_resolver.h
+	src/epub/layout_engine.h
     src/render/page_renderer.h
     src/utils/logger.h
 )

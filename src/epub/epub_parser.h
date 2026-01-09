@@ -2,7 +2,7 @@
 
 #include "zip_handler.h"
 #include "formatted_text.h"
-#include "html_parser.h"
+#include "html_parser_new.h"
 #include "image_cache.h"
 #include "toc_parser.h"
 #include <string>
@@ -63,7 +63,7 @@ private:
     std::vector<SpineItem> spine_;
     std::unordered_map<std::string, SpineItem> manifest_;
     
-    HTMLParser html_parser_;
+    HTMLParserNew html_parser_;
     ImageCache image_cache_;
     TOCParser toc_parser_;
 };

@@ -352,6 +352,13 @@ FormattedContent EpubParser::getChapterContent(size_t index) {
         html = zip_.extractTextFile(path);
     }
     
+    if (html.empty()) {
+        LOG_ERROR("Failed to load chapter HTML");
+        return FormattedContent();
+    }
+    
+    LOG_DEBUG("Chapter HTML loaded, length:", html.length());
+    
     return html_parser_.parse(html, &zip_, content_dir_);
 }
 

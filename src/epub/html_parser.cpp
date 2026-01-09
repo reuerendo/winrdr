@@ -1,492 +1,150 @@
-#include "html_parser.h"
+#include "html_parser_new.h"
 #include "zip_handler.h"
 #include "../utils/logger.h"
 #include <algorithm>
-#include <cctype>
-
-#ifdef _WIN32
-#define NOMINMAX
-#include <windows.h>
-#endif
 
 namespace epub {
 
-HTMLParser::HTMLParser() : image_cache_(nullptr) {}
-HTMLParser::~HTMLParser() {}
+HTMLParserNew::HTMLParserNew() : image_cache_(nullptr) {}
 
-void HTMLParser::setImageCache(ImageCache* cache) {
+HTMLParserNew::~HTMLParserNew() {}
+
+void HTMLParserNew::setImageCache(ImageCache* cache) {
     image_cache_ = cache;
 }
 
-FormattedContent HTMLParser::parse(const std::string& html, ZipHandler* zip, 
-                                   const std::string& base_path) {
-    FormattedContent content;
-    ParseContext ctx;
+FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
+                                     const std::string& base_path) {
+    LOG_DEBUG("Parsing HTML, length:", html.length());
     
-    // Parse inline CSS
-    size_t style_start = html.find("<style");
-    while (style_start != std::string::npos) {
-        size_t style_end = html.find("</style>", style_start);
-        if (style_end != std::string::npos) {
-            size_t content_start = html.find('>', style_start) + 1;
-            std::string css = html.substr(content_start, style_end - content_start);
-            css_parser_.parseStylesheet(css);
+    // Step 1: Build DOM tree
+    auto document = dom_builder_.parse(html);
+    
+    LOG_DEBUG("DOM tree built, children:", document->children.size());
+    
+    // Step 2: Extract and parse CSS
+    style_resolver_.clear();
+    
+    // Extract inline <style> tags
+    std::vector<ElementNode*> style_elements;
+    std::vector<DOMNode*> queue;
+    queue.push_back(document.get());
+    
+    while (!queue.empty()) {
+        DOMNode* node = queue.back();
+        queue.pop_back();
+        
+        if (node->getType() == NodeType::Element) {
+            ElementNode* element = static_cast<ElementNode*>(node);
+            
+            if (element->getTagName() == "style") {
+                style_elements.push_back(element);
+            }
         }
-        style_start = html.find("<style", style_end);
+        
+        for (auto& child : node->children) {
+            queue.push_back(child.get());
+        }
     }
     
-    size_t pos = 0;
-    parseNode(html, pos, content, ctx, zip, base_path);
+    // Parse CSS from <style> tags
+    for (ElementNode* style_elem : style_elements) {
+        std::string css;
+        for (auto& child : style_elem->children) {
+            if (child->getType() == NodeType::Text) {
+                TextNode* text = static_cast<TextNode*>(child.get());
+                css += text->getText();
+            }
+        }
+        
+        if (!css.empty()) {
+            LOG_DEBUG("Parsing CSS stylesheet, length:", css.length());
+            style_resolver_.addStylesheet(css);
+        }
+    }
     
-    // Flush any remaining text
-    flushCurrentText(ctx, content);
+    // Step 3: Resolve styles (cascade + compute)
+    style_resolver_.resolveStyles(document.get());
+    
+    LOG_DEBUG("Styles resolved");
+    
+    // Step 4: Load images
+    if (zip && image_cache_) {
+        extractAndLoadImages(document.get(), zip, base_path);
+    }
+    
+    // Step 5: Layout
+    FormattedContent content = layout_engine_.layout(document.get(), image_cache_);
+    
+    LOG_INFO("HTML parsing complete, elements:", content.size());
     
     return content;
 }
 
-void HTMLParser::parseNode(const std::string& html, size_t& pos, 
-                           FormattedContent& content, ParseContext& ctx,
-                           ZipHandler* zip, const std::string& base_path) {
-    while (pos < html.length()) {
-        if (html[pos] == '<') {
-            // Check for comment
-            if (pos + 3 < html.length() && html.substr(pos, 4) == "<!--") {
-                size_t comment_end = html.find("-->", pos);
-                if (comment_end != std::string::npos) {
-                    pos = comment_end + 3;
-                    continue;
-                }
-            }
-            
-            // Check for closing tag
-            if (pos + 1 < html.length() && html[pos + 1] == '/') {
-                size_t tag_end = html.find('>', pos);
-                if (tag_end != std::string::npos) {
-                    std::string tag_name = extractTagName(html.substr(pos + 2, tag_end - pos - 2));
-                    handleCloseTag(tag_name, ctx, content);
-                    pos = tag_end + 1;
-                    continue;
-                }
-            }
-            
-            // Opening tag
-            size_t tag_end = html.find('>', pos);
-            if (tag_end != std::string::npos) {
-                bool self_closing = (html[tag_end - 1] == '/');
-                std::string tag_content = html.substr(pos + 1, tag_end - pos - 1);
-                std::string tag_name = extractTagName(tag_content);
-                
-                handleOpenTag(tag_name, tag_content, ctx, content, zip, base_path);
-                
-                if (self_closing || tag_name == "br" || tag_name == "img") {
-                    handleCloseTag(tag_name, ctx, content);
-                }
-                
-                pos = tag_end + 1;
-                continue;
-            }
-        }
-        
-        // Text content
-        size_t next_tag = html.find('<', pos);
-        if (next_tag == std::string::npos) {
-            next_tag = html.length();
-        }
-        
-        std::string text = html.substr(pos, next_tag - pos);
-        if (!text.empty()) {
-            addText(text, ctx, content);
-        }
-        
-        pos = next_tag;
-    }
-}
-
-bool HTMLParser::isBlockElement(const std::string& tag) {
-    return tag == "p" || tag == "div" || tag == "h1" || tag == "h2" || 
-           tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6" ||
-           tag == "blockquote" || tag == "li" || tag == "pre" ||
-           tag == "article" || tag == "section" || tag == "aside" ||
-           tag == "header" || tag == "footer" || tag == "main" ||
-           tag == "figure" || tag == "figcaption";
-}
-
-void HTMLParser::flushCurrentText(ParseContext& ctx, FormattedContent& content) {
-    if (!ctx.current_text.empty() && !ctx.skip_content) {
-        TextElement elem;
-        elem.type = ctx.block_element_type;
-        elem.content = ctx.current_text;
-        elem.style = ctx.current_style;
-        elem.align = ctx.current_align;
-        elem.list_level = ctx.list_level;
-        content.push_back(elem);
-        
-        ctx.current_text.clear();
-    }
-}
-
-void HTMLParser::handleOpenTag(const std::string& tag, const std::string& attributes,
-                               ParseContext& ctx, FormattedContent& content,
-                               ZipHandler* zip, const std::string& base_path) {
-    std::string tag_lower = tag;
-    std::transform(tag_lower.begin(), tag_lower.end(), tag_lower.begin(), ::tolower);
+void HTMLParserNew::extractAndLoadImages(DocumentNode* document, ZipHandler* zip,
+                                        const std::string& base_path) {
+    std::vector<ElementNode*> img_elements;
+    std::vector<DOMNode*> queue;
+    queue.push_back(document);
     
-    // Skip tags that should not render content
-    if (tag_lower == "script" || tag_lower == "style" || tag_lower == "title" || 
-        tag_lower == "head" || tag_lower == "meta" || tag_lower == "link") {
-        StyleState state;
-        state.style = ctx.current_style;
-        state.skip = ctx.skip_content;
-        style_stack_.push(state);
-        ctx.skip_content = true;
-        return;
+    while (!queue.empty()) {
+        DOMNode* node = queue.back();
+        queue.pop_back();
+        
+        if (node->getType() == NodeType::Element) {
+            ElementNode* element = static_cast<ElementNode*>(node);
+            
+            if (element->getTagName() == "img") {
+                img_elements.push_back(element);
+            }
+        }
+        
+        for (auto& child : node->children) {
+            queue.push_back(child.get());
+        }
     }
     
-    // Block elements - flush current text and start new block
-    if (isBlockElement(tag_lower)) {
-        flushCurrentText(ctx, content);
-        
-        StyleState state;
-        state.style = ctx.current_style;
-        state.element_type = ctx.block_element_type;
-        state.align = ctx.current_align;
-        state.skip = ctx.skip_content;
-        style_stack_.push(state);
-        
-        // Set new block type
-        if (tag_lower == "p") {
-            ctx.block_element_type = ElementType::Paragraph;
-        } else if (tag_lower == "h1") {
-            ctx.block_element_type = ElementType::Heading1;
-        } else if (tag_lower == "h2") {
-            ctx.block_element_type = ElementType::Heading2;
-        } else if (tag_lower == "h3") {
-            ctx.block_element_type = ElementType::Heading3;
-        } else if (tag_lower == "h4") {
-            ctx.block_element_type = ElementType::Heading4;
-        } else if (tag_lower == "h5") {
-            ctx.block_element_type = ElementType::Heading5;
-        } else if (tag_lower == "h6") {
-            ctx.block_element_type = ElementType::Heading6;
-        } else if (tag_lower == "blockquote") {
-            ctx.block_element_type = ElementType::Quote;
-        } else if (tag_lower == "li") {
-            ctx.block_element_type = ElementType::ListItem;
-        } else if (tag_lower == "pre") {
-            ctx.block_element_type = ElementType::CodeBlock;
-            ctx.current_style = ctx.current_style | TextStyle::Monospace;
+    LOG_DEBUG("Found images:", img_elements.size());
+    
+    for (ElementNode* img : img_elements) {
+        processImageNode(img, zip, base_path);
+    }
+}
+
+void HTMLParserNew::processImageNode(ElementNode* element, ZipHandler* zip,
+                                    const std::string& base_path) {
+    std::string src = element->getAttribute("src");
+    if (src.empty()) return;
+    
+    std::string img_path = normalizePath(base_path, src);
+    
+    LOG_DEBUG("Loading image:", img_path);
+    
+    std::vector<char> img_data;
+    if (zip->extractFile(img_path, img_data)) {
+        if (image_cache_->loadImage(img_path, img_data)) {
+            LOG_DEBUG("Image loaded successfully:", img_path);
         } else {
-            ctx.block_element_type = ElementType::Paragraph;
+            LOG_WARNING("Failed to load image:", img_path);
         }
-        
-        ctx.current_style = TextStyle::Normal;
-    }
-    // Inline elements - just modify style
-    else {
-        // Save current style state for inline elements
-        StyleState state;
-        state.style = ctx.current_style;
-        state.skip = ctx.skip_content;
-        style_stack_.push(state);
-        
-        if (tag_lower == "b" || tag_lower == "strong") {
-            // Flush current text with old style, apply new style
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Bold;
-        }
-        else if (tag_lower == "i" || tag_lower == "em" || tag_lower == "cite") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Italic;
-        }
-        else if (tag_lower == "u" || tag_lower == "ins") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Underline;
-        }
-        else if (tag_lower == "s" || tag_lower == "strike" || tag_lower == "del") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Strikethrough;
-        }
-        else if (tag_lower == "small") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Small;
-        }
-        else if (tag_lower == "sub") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Subscript | TextStyle::Small;
-        }
-        else if (tag_lower == "sup") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Superscript | TextStyle::Small;
-        }
-        else if (tag_lower == "code" || tag_lower == "kbd") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Monospace;
-        }
-        else if (tag_lower == "a") {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | TextStyle::Underline;
-        }
-        else if (tag_lower == "q") {
-            ctx.current_text += L"\"";
-        }
-    }
-    
-    // Special elements
-    if (tag_lower == "ul" || tag_lower == "ol") {
-        ctx.list_level++;
-        StyleState state;
-        state.style = ctx.current_style;
-        state.skip = ctx.skip_content;
-        style_stack_.push(state);
-    }
-    else if (tag_lower == "hr") {
-        flushCurrentText(ctx, content);
-        TextElement elem;
-        elem.type = ElementType::HorizontalRule;
-        content.push_back(elem);
-    }
-    else if (tag_lower == "br") {
-        flushCurrentText(ctx, content);
-        TextElement elem;
-        elem.type = ElementType::LineBreak;
-        content.push_back(elem);
-    }
-    else if (tag_lower == "img") {
-        flushCurrentText(ctx, content);
-        std::string src = extractAttribute(attributes, "src");
-        if (!src.empty() && zip && image_cache_) {
-            std::string img_path = normalizePath(base_path, src);
-            
-            std::vector<char> img_data;
-            if (zip->extractFile(img_path, img_data)) {
-                if (image_cache_->loadImage(img_path, img_data)) {
-                    TextElement elem;
-                    elem.type = ElementType::Image;
-                    elem.image_id = img_path;
-                    content.push_back(elem);
-                }
-            }
-        }
-    }
-    
-    // CSS class/style
-    std::string class_name = extractAttribute(attributes, "class");
-    if (!class_name.empty()) {
-        CSSStyle style = css_parser_.getStyle(class_name);
-        if (style.has_style) {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | style.text_style;
-        }
-        if (style.has_align) {
-            ctx.current_align = style.align;
-        }
-    }
-    
-    std::string inline_style = extractAttribute(attributes, "style");
-    if (!inline_style.empty()) {
-        CSSStyle style;
-        css_parser_.parseInlineStyle(inline_style, style);
-        if (style.has_style) {
-            if (!ctx.current_text.empty()) {
-                flushCurrentText(ctx, content);
-            }
-            ctx.current_style = ctx.current_style | style.text_style;
-        }
-        if (style.has_align) {
-            ctx.current_align = style.align;
-        }
+    } else {
+        LOG_WARNING("Failed to extract image file:", img_path);
     }
 }
 
-void HTMLParser::handleCloseTag(const std::string& tag, ParseContext& ctx,
-                               FormattedContent& content) {
-    std::string tag_lower = tag;
-    std::transform(tag_lower.begin(), tag_lower.end(), tag_lower.begin(), ::tolower);
-    
-    // Add closing quote for <q> tag
-    if (tag_lower == "q" && !ctx.skip_content) {
-        ctx.current_text += L"\"";
-    }
-    
-    // Block elements - flush and add line break
-    if (isBlockElement(tag_lower)) {
-        flushCurrentText(ctx, content);
-        
-        if (!ctx.skip_content && !content.empty() && 
-            content.back().type != ElementType::LineBreak) {
-            TextElement elem;
-            elem.type = ElementType::LineBreak;
-            content.push_back(elem);
-        }
-        
-        // Restore state
-        if (!style_stack_.empty()) {
-            StyleState state = style_stack_.top();
-            style_stack_.pop();
-            ctx.current_style = state.style;
-            ctx.block_element_type = state.element_type;
-            ctx.current_align = state.align;
-            ctx.skip_content = state.skip;
-        }
-    }
-    // Inline elements - just restore style
-    else if (tag_lower == "b" || tag_lower == "strong" || 
-             tag_lower == "i" || tag_lower == "em" || tag_lower == "cite" ||
-             tag_lower == "u" || tag_lower == "ins" ||
-             tag_lower == "s" || tag_lower == "strike" || tag_lower == "del" ||
-             tag_lower == "small" || tag_lower == "sub" || tag_lower == "sup" ||
-             tag_lower == "code" || tag_lower == "kbd" || tag_lower == "a" ||
-             tag_lower == "span") {
-        
-        // Flush text with current style
-        if (!ctx.current_text.empty()) {
-            flushCurrentText(ctx, content);
-        }
-        
-        // Restore previous style
-        if (!style_stack_.empty()) {
-            StyleState state = style_stack_.top();
-            style_stack_.pop();
-            ctx.current_style = state.style;
-            ctx.skip_content = state.skip;
-        }
-    }
-    else if (tag_lower == "ul" || tag_lower == "ol") {
-        ctx.list_level--;
-        if (!style_stack_.empty()) {
-            style_stack_.pop();
-        }
-    }
-    else if (tag_lower == "script" || tag_lower == "style" || tag_lower == "title" ||
-             tag_lower == "head") {
-        if (!style_stack_.empty()) {
-            StyleState state = style_stack_.top();
-            style_stack_.pop();
-            ctx.skip_content = state.skip;
-        }
-    }
-}
-
-void HTMLParser::addText(const std::string& text, ParseContext& ctx,
-                        FormattedContent& content) {
-    if (ctx.skip_content) return;
-    
-    std::string decoded = decodeHTMLEntities(text);
-    
-    // Skip whitespace-only text
-    bool has_content = false;
-    for (char c : decoded) {
-        if (!std::isspace(static_cast<unsigned char>(c))) {
-            has_content = true;
-            break;
-        }
-    }
-    
-    if (!has_content) return;
-    
-    std::wstring wide_text = utf8ToWide(decoded);
-    ctx.current_text += wide_text;
-}
-
-std::string HTMLParser::extractTagName(const std::string& tag_content) {
-    size_t space = tag_content.find(' ');
-    size_t slash = tag_content.find('/');
-    size_t end = std::min(space, slash);
-    
-    if (end == std::string::npos) {
-        end = tag_content.length();
-    }
-    
-    return tag_content.substr(0, end);
-}
-
-std::string HTMLParser::extractAttribute(const std::string& tag_content, 
-                                        const std::string& attr_name) {
-    std::string search = attr_name + "=\"";
-    size_t pos = tag_content.find(search);
-    if (pos == std::string::npos) {
-        search = attr_name + "='";
-        pos = tag_content.find(search);
-    }
-    
-    if (pos != std::string::npos) {
-        pos += search.length();
-        size_t end = tag_content.find(search.back(), pos);
-        if (end != std::string::npos) {
-            return tag_content.substr(pos, end - pos);
-        }
-    }
-    
-    return "";
-}
-
-std::string HTMLParser::decodeHTMLEntities(const std::string& text) {
-    std::string result;
-    
-    for (size_t i = 0; i < text.length(); i++) {
-        if (text[i] == '&') {
-            if (text.substr(i, 6) == "&nbsp;") { result += ' '; i += 5; }
-            else if (text.substr(i, 4) == "&lt;") { result += '<'; i += 3; }
-            else if (text.substr(i, 4) == "&gt;") { result += '>'; i += 3; }
-            else if (text.substr(i, 5) == "&amp;") { result += '&'; i += 4; }
-            else if (text.substr(i, 6) == "&quot;") { result += '"'; i += 5; }
-            else if (text.substr(i, 6) == "&apos;") { result += '\''; i += 5; }
-            else result += text[i];
-        } else {
-            result += text[i];
-        }
-    }
-    
-    return result;
-}
-
-std::wstring HTMLParser::utf8ToWide(const std::string& str) {
-    if (str.empty()) return std::wstring();
-    
-#ifdef _WIN32
-    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    std::wstring result(size, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], size);
-    return result;
-#else
-    std::wstring result;
-    for (char c : str) {
-        result += static_cast<wchar_t>(static_cast<unsigned char>(c));
-    }
-    return result;
-#endif
-}
-
-std::string HTMLParser::normalizePath(const std::string& base, const std::string& relative) {
+std::string HTMLParserNew::normalizePath(const std::string& base, const std::string& relative) {
     if (relative.empty()) return "";
     
+    // Absolute path
     if (relative[0] == '/') return relative.substr(1);
     
+    // Remove leading ../
     std::string path = relative;
     while (path.find("../") == 0) {
         path = path.substr(3);
     }
     
+    // Combine with base
     if (!base.empty()) {
         return base + path;
     }
