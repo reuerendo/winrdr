@@ -15,6 +15,7 @@ LayoutEngine::LayoutEngine()
     , current_inline_align_(TextAlign::Left)
     , current_block_type_(ElementType::Text)
     , current_list_level_(0)
+    , current_block_node_(nullptr)
     , in_inline_context_(false)
 {}
 
@@ -22,6 +23,7 @@ FormattedContent LayoutEngine::layout(DocumentNode* document, ImageCache* image_
     output_.clear();
     image_cache_ = image_cache;
     current_inline_text_.clear();
+    current_block_node_ = nullptr;
     in_inline_context_ = false;
     
     for (auto& child : document->children) {
@@ -37,7 +39,6 @@ FormattedContent LayoutEngine::layout(DocumentNode* document, ImageCache* image_
 void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
     if (!node) return;
     
-    // Skip nodes with display:none
     if (node->computed_style.display == DisplayType::None) {
         return;
     }
@@ -53,7 +54,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     const std::string& tag = element->getTagName();
     const ComputedStyle& style = element->computed_style;
     
-    // Handle special elements
     if (tag == "br") {
         if (in_inline_context_) {
             flushInlineContent();
@@ -66,6 +66,8 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         flushInlineContent();
         TextElement elem;
         elem.type = ElementType::HorizontalRule;
+        elem.margin_top = style.margin_top;
+        elem.margin_bottom = style.margin_bottom;
         output_.push_back(elem);
         addLineBreak();
         return;
@@ -81,6 +83,8 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
                 TextElement elem;
                 elem.type = ElementType::Image;
                 elem.image_id = src;
+                elem.margin_top = style.margin_top;
+                elem.margin_bottom = style.margin_bottom;
                 output_.push_back(elem);
                 addLineBreak();
             }
@@ -88,18 +92,18 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         return;
     }
     
-    // Block vs inline handling
     if (style.display == DisplayType::Block || 
         style.display == DisplayType::ListItem) {
         
-        // Flush any pending inline content
         flushInlineContent();
         
-        // Set block context
         ElementType old_block_type = current_block_type_;
         TextAlign old_align = current_inline_align_;
+        DOMNode* old_block_node = current_block_node_;
         
-        // Determine block type from tag
+        // Set current block node to get CSS properties
+        current_block_node_ = element;
+        
         if (tag == "p") {
             current_block_type_ = ElementType::Paragraph;
         } else if (tag == "h1") {
@@ -126,42 +130,35 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         current_inline_align_ = computeTextAlign(style);
         
-        // Adjust list level for lists
         int new_list_level = list_level;
         if (tag == "ul" || tag == "ol") {
             new_list_level++;
         }
         
-        // Layout children
         for (auto& child : element->children) {
             layoutNode(child.get(), new_list_level);
         }
         
-        // Flush block content
         flushInlineContent();
         
-        // Add spacing after block elements (except if next sibling is also block)
         if (current_block_type_ != ElementType::Text && !output_.empty()) {
             if (output_.back().type != ElementType::LineBreak) {
                 addLineBreak();
             }
         }
         
-        // Restore context
         current_block_type_ = old_block_type;
         current_inline_align_ = old_align;
+        current_block_node_ = old_block_node;
     }
     else if (style.display == DisplayType::Inline || 
              style.display == DisplayType::InlineBlock) {
         
-        // Enter inline context if not already
         bool was_inline = in_inline_context_;
         in_inline_context_ = true;
         
-        // Save current style
         TextStyle old_style = current_inline_style_;
         
-        // Apply inline styles additively
         TextStyle new_style = current_inline_style_;
         
         if (style.bold) {
@@ -191,22 +188,18 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         current_inline_style_ = new_style;
         
-        // Special handling for <q> tag
         if (tag == "q") {
             current_inline_text_ += L"\"";
         }
         
-        // Layout children
         for (auto& child : element->children) {
             layoutNode(child.get(), list_level);
         }
         
-        // Closing quote for <q>
         if (tag == "q") {
             current_inline_text_ += L"\"";
         }
         
-        // Restore style
         current_inline_style_ = old_style;
         in_inline_context_ = was_inline;
     }
@@ -220,7 +213,6 @@ void LayoutEngine::layoutText(TextNode* text) {
     const std::string& utf8_text = text->getText();
     std::wstring wide_text = utf8ToWide(utf8_text);
     
-    // Process whitespace according to parent's white-space style
     ComputedStyle::WhiteSpace ws = ComputedStyle::WhiteSpace::Normal;
     if (text->parent) {
         ws = text->parent->computed_style.white_space;
@@ -229,12 +221,6 @@ void LayoutEngine::layoutText(TextNode* text) {
     wide_text = processWhitespace(wide_text, ws);
     
     if (!wide_text.empty()) {
-        // If style changed, flush previous text
-        if (!current_inline_text_.empty()) {
-            // Check if we need to start new element due to style change
-            // For now, just append - proper implementation would track style changes
-        }
-        
         current_inline_text_ += wide_text;
     }
 }
@@ -250,6 +236,15 @@ void LayoutEngine::flushInlineContent() {
     elem.style = current_inline_style_;
     elem.align = current_inline_align_;
     elem.list_level = current_list_level_;
+    
+    // Copy CSS spacing from current block node
+    if (current_block_node_) {
+        const ComputedStyle& cs = current_block_node_->computed_style;
+        elem.margin_top = cs.margin_top;
+        elem.margin_bottom = cs.margin_bottom;
+        elem.padding_left = cs.padding_left;
+        elem.text_indent = cs.padding_left; // For now, use padding_left as text-indent
+    }
     
     output_.push_back(elem);
     
@@ -318,7 +313,6 @@ std::wstring LayoutEngine::processWhitespace(const std::wstring& text,
         return text;
     }
     
-    // Normal and nowrap: collapse whitespace
     std::wstring result;
     bool prev_was_space = false;
     
@@ -334,7 +328,6 @@ std::wstring LayoutEngine::processWhitespace(const std::wstring& text,
         }
     }
     
-    // Trim leading/trailing space
     if (!result.empty() && result[0] == L' ') {
         result = result.substr(1);
     }

@@ -36,6 +36,7 @@ private:
     TextAlign current_inline_align_;
     ElementType current_block_type_;
     int current_list_level_;
+    DOMNode* current_block_node_;  // Track current block for CSS properties
     
     // Track if we're in inline context
     bool in_inline_context_;

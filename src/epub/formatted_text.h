@@ -63,11 +63,21 @@ struct TextElement {
     std::string link_href;
     int list_level;
     
+    // CSS spacing/indentation (in pixels or em units)
+    float margin_top;
+    float margin_bottom;
+    float padding_left;
+    float text_indent;      // First line indent
+    
     TextElement() 
         : type(ElementType::Text)
         , style(TextStyle::Normal)
         , align(TextAlign::Left)
-        , list_level(0) 
+        , list_level(0)
+        , margin_top(0.0f)
+        , margin_bottom(0.0f)
+        , padding_left(0.0f)
+        , text_indent(0.0f)
     {}
 };
 
