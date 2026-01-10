@@ -39,20 +39,17 @@ FormattedContent LayoutEngine::layout(DocumentNode* document, ImageCache* image_
 void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
     if (!node) return;
     
-    // Skip nodes with display:none
     if (node->computed_style.display == DisplayType::None) {
         return;
     }
     
-    // Apply margin-top spacing before block elements (converted to line breaks)
     if (node->getType() == NodeType::Element && 
         (node->computed_style.display == DisplayType::Block ||
          node->computed_style.display == DisplayType::ListItem)) {
         
         float margin_top = node->computed_style.margin_top;
-        // Convert pixels to approximate line breaks (assuming ~20px per line)
         int line_breaks = static_cast<int>(margin_top / 20.0f);
-        for (int i = 0; i < line_breaks && i < 3; i++) { // Cap at 3 line breaks
+        for (int i = 0; i < line_breaks && i < 3; i++) {
             addLineBreak();
         }
     }
@@ -63,7 +60,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
         layoutText(static_cast<TextNode*>(node));
     }
     
-    // Apply margin-bottom spacing after block elements
     if (node->getType() == NodeType::Element && 
         (node->computed_style.display == DisplayType::Block ||
          node->computed_style.display == DisplayType::ListItem)) {
@@ -80,7 +76,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     const std::string& tag = element->getTagName();
     const ComputedStyle& style = element->computed_style;
     
-    // Handle special elements
     if (tag == "br") {
         if (in_inline_context_) {
             flushInlineContent();
@@ -117,17 +112,17 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     
     // Block vs inline handling
     if (style.display == DisplayType::Block || 
-        style.display == DisplayType::ListItem) {
+        style.display == DisplayType::ListItem ||
+        style.display == DisplayType::Table ||
+        style.display == DisplayType::TableRow ||
+        style.display == DisplayType::TableCell) {
         
-        // Flush any pending inline content
         flushInlineContent();
         
-        // Set block context
         ElementType old_block_type = current_block_type_;
         TextAlign old_align = current_inline_align_;
         float old_text_indent = current_text_indent_;
         
-        // Determine block type from tag
         if (tag == "p") {
             current_block_type_ = ElementType::Paragraph;
         } else if (tag == "h1") {
@@ -155,28 +150,23 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         current_inline_align_ = computeTextAlign(style);
         current_text_indent_ = style.text_indent;
         
-        // Adjust list level for lists
         int new_list_level = list_level;
         if (tag == "ul" || tag == "ol") {
             new_list_level++;
         }
         
-        // Layout children
         for (auto& child : element->children) {
             layoutNode(child.get(), new_list_level);
         }
         
-        // Flush block content
         flushInlineContent();
         
-        // Add spacing after block elements (except if next sibling is also block)
         if (current_block_type_ != ElementType::Text && !output_.empty()) {
             if (output_.back().type != ElementType::LineBreak) {
                 addLineBreak();
             }
         }
         
-        // Restore context
         current_block_type_ = old_block_type;
         current_inline_align_ = old_align;
         current_text_indent_ = old_text_indent;
@@ -184,14 +174,11 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     else if (style.display == DisplayType::Inline || 
              style.display == DisplayType::InlineBlock) {
         
-        // Enter inline context if not already
         bool was_inline = in_inline_context_;
         in_inline_context_ = true;
         
-        // Save current style
         TextStyle old_style = current_inline_style_;
         
-        // Apply inline styles additively
         TextStyle new_style = current_inline_style_;
         
         if (style.bold) {
@@ -221,22 +208,18 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         current_inline_style_ = new_style;
         
-        // Special handling for <q> tag
         if (tag == "q") {
             current_inline_text_ += L"\"";
         }
         
-        // Layout children
         for (auto& child : element->children) {
             layoutNode(child.get(), list_level);
         }
         
-        // Closing quote for <q>
         if (tag == "q") {
             current_inline_text_ += L"\"";
         }
         
-        // Restore style
         current_inline_style_ = old_style;
         in_inline_context_ = was_inline;
     }
@@ -250,17 +233,12 @@ void LayoutEngine::layoutText(TextNode* text) {
     const std::string& utf8_text = text->getText();
     std::wstring wide_text = utf8ToWide(utf8_text);
     
-    // Process whitespace according to parent's white-space style
     ComputedStyle::WhiteSpace ws = ComputedStyle::WhiteSpace::Normal;
     if (text->parent) {
         ws = text->parent->computed_style.white_space;
     }
     
     wide_text = processWhitespace(wide_text, ws);
-    
-    // DON'T apply text-transform here - it should only apply to specific elements
-    // text-transform is NOT inherited in our implementation
-    // It will be applied only if explicitly set on the parent element
     
     if (!wide_text.empty()) {
         current_inline_text_ += wide_text;
@@ -347,7 +325,6 @@ std::wstring LayoutEngine::processWhitespace(const std::wstring& text,
         return text;
     }
     
-    // Normal and nowrap: collapse whitespace
     std::wstring result;
     bool prev_was_space = false;
     
@@ -363,7 +340,6 @@ std::wstring LayoutEngine::processWhitespace(const std::wstring& text,
         }
     }
     
-    // Trim leading/trailing space
     if (!result.empty() && result[0] == L' ') {
         result = result.substr(1);
     }

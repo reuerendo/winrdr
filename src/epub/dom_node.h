@@ -19,9 +19,9 @@ enum class DisplayType {
     Inline,
     InlineBlock,
     ListItem,
-    Table,
-    TableRow,
-    TableCell
+    Table,        // Treated as Block in layout
+    TableRow,     // Treated as Block in layout
+    TableCell     // Treated as Block in layout
 };
 
 struct ComputedStyle {
@@ -35,10 +35,8 @@ struct ComputedStyle {
     bool monospace = false;
     float font_size_multiplier = 1.0f;
     
-    // Subscript/superscript
     enum class VerticalAlign { Baseline, Sub, Super } vertical_align = VerticalAlign::Baseline;
     
-    // Block properties
     enum class TextAlign { Left, Right, Center, Justify } text_align = TextAlign::Left;
     
     // Box model (in pixels or em units)
@@ -52,7 +50,6 @@ struct ComputedStyle {
     float padding_left = 0;
     float padding_right = 0;
     
-    // Color
     struct Color {
         unsigned char r = 0, g = 0, b = 0;
         Color() = default;
@@ -62,17 +59,13 @@ struct ComputedStyle {
     Color background_color = Color(255, 255, 255);
     bool has_background = false;
     
-    // List properties
     enum class ListStyleType { None, Disc, Circle, Square, Decimal } list_style = ListStyleType::Disc;
     
-    // White space handling
     enum class WhiteSpace { Normal, Pre, Nowrap, PreWrap } white_space = WhiteSpace::Normal;
     
-    // Line height
     float line_height = 1.2f;
     
-    // NEW: Advanced typography
-    float letter_spacing = 0.0f; // in em units
+    float letter_spacing = 0.0f;
     
     enum class TextTransform { None, Uppercase, Lowercase, Capitalize } text_transform = TextTransform::None;
     
@@ -82,22 +75,17 @@ struct ComputedStyle {
     
     enum class Hyphens { None, Manual, Auto } hyphens = Hyphens::Manual;
     
-    // Page break hints
     enum class PageBreak { Auto, Always, Avoid } page_break_before = PageBreak::Auto;
     enum class PageBreak page_break_after = PageBreak::Auto;
     enum class PageBreak page_break_inside = PageBreak::Auto;
     
-    // Font family (simplified - just store name)
     std::string font_family;
     
-    // Text rendering hints
     enum class TextRendering { Auto, OptimizeSpeed, OptimizeLegibility } 
         text_rendering = TextRendering::Auto;
     
-    // Text indent
-    float text_indent = 0.0f; // in em units
+    float text_indent = 0.0f;
     
-    // Text alignment for last line (for justify)
     enum class TextAlignLast { Auto, Left, Right, Center, Justify } 
         text_align_last = TextAlignLast::Auto;
 };
