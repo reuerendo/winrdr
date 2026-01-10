@@ -8,10 +8,14 @@
 #undef min
 #undef max
 
+<<<<<<< Updated upstream
 // Static variables to track rendering position across multiple elements
 // In a production environment, these should be part of a RenderContext struct passed around
 static int current_x_position_ = 0;
 static int current_row_max_height_ = 0;
+=======
+static const float BASE_FONT_SIZE = 16.0f;
+>>>>>>> Stashed changes
 
 PageRenderer::PageRenderer() 
     : current_page_(0)
@@ -109,9 +113,15 @@ HFONT PageRenderer::createFont(int size, bool bold, bool italic,
     );
 }
 
+<<<<<<< Updated upstream
 // Private helper to create fonts with custom family support
 HFONT CreateFontWithFamily(int size, bool bold, bool italic, 
                           bool underline, bool strikethrough, const std::wstring& family) {
+=======
+static HFONT CreateFontWithFamily(int size, bool bold, bool italic, 
+                                 bool underline, bool strikethrough, 
+                                 const std::wstring& family) {
+>>>>>>> Stashed changes
     return CreateFontW(
         size, 0, 0, 0,
         bold ? FW_BOLD : FW_NORMAL,
@@ -127,8 +137,12 @@ HFONT CreateFontWithFamily(int size, bool bold, bool italic,
     );
 }
 
+<<<<<<< Updated upstream
 // Helper to get font size based on element type
 int getFontSizeForType(epub::ElementType type, int base_size) {
+=======
+static int getFontSizeForType(epub::ElementType type, int base_size) {
+>>>>>>> Stashed changes
     switch (type) {
         case epub::ElementType::Heading1: return static_cast<int>(base_size * 2.0);
         case epub::ElementType::Heading2: return static_cast<int>(base_size * 1.5);
@@ -176,7 +190,10 @@ void PageRenderer::calculatePages(HDC hdc) {
     for (size_t i = 0; i < content_.size(); i++) {
         int element_height = measureElementHeight(hdc, content_[i], content_width);
         
+<<<<<<< Updated upstream
         // If an element exceeds the remaining page height, break the page
+=======
+>>>>>>> Stashed changes
         if (current_height + element_height > content_height && i > element_start_index) {
             PageBreak page;
             page.element_start = element_start_index;
@@ -185,10 +202,14 @@ void PageRenderer::calculatePages(HDC hdc) {
             
             element_start_index = i;
             current_height = 0;
+<<<<<<< Updated upstream
             current_x_position_ = margin_;
             current_row_max_height_ = 0;
             
             // Re-measure for the new page context
+=======
+            
+>>>>>>> Stashed changes
             element_height = measureElementHeight(hdc, content_[i], content_width);
         }
         
@@ -211,11 +232,17 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& element
     }
 
     if (element.type == epub::ElementType::Image) {
+<<<<<<< Updated upstream
         // Estimate image height (simplified)
         return 300 + static_cast<int>(element.margin_top + element.margin_bottom);
     }
 
     // Determine font properties matching renderElement
+=======
+        return 300 + static_cast<int>(element.margin_top + element.margin_bottom);
+    }
+
+>>>>>>> Stashed changes
     bool is_bold = epub::hasStyle(element.style, epub::TextStyle::Bold);
     bool is_italic = epub::hasStyle(element.style, epub::TextStyle::Italic);
     bool has_underline = epub::hasStyle(element.style, epub::TextStyle::Underline);
@@ -231,16 +258,25 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& element
     }
 
     HFONT font = CreateFontWithFamily(text_size, is_bold, is_italic, 
+<<<<<<< Updated upstream
                                     has_underline, has_strikethrough, family_to_use);
+=======
+                                     has_underline, has_strikethrough, family_to_use);
+>>>>>>> Stashed changes
     HFONT old_font = (HFONT)SelectObject(hdc, font);
 
     RECT calc_rect = { 0, 0, width, 0 };
     
+<<<<<<< Updated upstream
     // Apply indent for the measurement if it's a new block
     if (!element.is_inline_continuation) {
         int indent_pixels = static_cast<int>(element.text_indent * font_size_);
         calc_rect.left += indent_pixels;
     }
+=======
+    int indent_pixels = static_cast<int>(element.text_indent * font_size_);
+    calc_rect.left += indent_pixels;
+>>>>>>> Stashed changes
 
     DrawTextW(hdc, element.content.c_str(), -1, &calc_rect, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
 
@@ -248,11 +284,15 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& element
     DeleteObject(font);
 
     int height = calc_rect.bottom - calc_rect.top;
+<<<<<<< Updated upstream
     
     // Add margins if starting a new block
     if (!element.is_inline_continuation) {
         height += static_cast<int>(element.margin_top + element.margin_bottom);
     }
+=======
+    height += static_cast<int>(element.margin_top + element.margin_bottom);
+>>>>>>> Stashed changes
 
     return height;
 }
@@ -329,6 +369,7 @@ void PageRenderer::render(HDC hdc) {
 void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element, 
                                 RECT& rect, int& y_pos) {
     
+<<<<<<< Updated upstream
     // Convert margins to pixels
     int margin_top_pixels = static_cast<int>(element.margin_top);
     int margin_bottom_pixels = static_cast<int>(element.margin_bottom);
@@ -344,10 +385,17 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
         current_x_position_ = rect.left;
         y_pos += margin_top_pixels;
     }
+=======
+    int margin_top_pixels = static_cast<int>(element.margin_top);
+    int margin_bottom_pixels = static_cast<int>(element.margin_bottom);
+    
+    y_pos += margin_top_pixels;
+>>>>>>> Stashed changes
     
     switch (element.type) {
         case epub::ElementType::LineBreak:
             y_pos += font_size_; 
+<<<<<<< Updated upstream
             current_x_position_ = rect.left;
             current_row_max_height_ = 0;
             break;
@@ -355,6 +403,11 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
         case epub::ElementType::HorizontalRule: {
             if (current_row_max_height_ > 0) y_pos += current_row_max_height_;
             
+=======
+            break;
+            
+        case epub::ElementType::HorizontalRule: {
+>>>>>>> Stashed changes
             HPEN pen = CreatePen(PS_SOLID, 2, RGB(128, 128, 128));
             HPEN old_pen = (HPEN)SelectObject(hdc, pen);
             
@@ -364,13 +417,18 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
             SelectObject(hdc, old_pen);
             DeleteObject(pen);
             
+<<<<<<< Updated upstream
             y_pos += 10 + margin_bottom_pixels;
             current_x_position_ = rect.left;
             current_row_max_height_ = 0;
+=======
+            y_pos += 10;
+>>>>>>> Stashed changes
             break;
         }
             
         case epub::ElementType::Image:
+<<<<<<< Updated upstream
             if (current_row_max_height_ > 0) {
                 y_pos += current_row_max_height_;
                 current_row_max_height_ = 0;
@@ -378,6 +436,9 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
             drawImage(hdc, element.image_id, rect, y_pos);
             y_pos += margin_bottom_pixels;
             current_x_position_ = rect.left;
+=======
+            drawImage(hdc, element.image_id, rect, y_pos);
+>>>>>>> Stashed changes
             break;
             
         case epub::ElementType::Heading1:
@@ -393,7 +454,10 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
         case epub::ElementType::ListItem:
         case epub::ElementType::CodeBlock: {
             
+<<<<<<< Updated upstream
             // 1. Prepare Font with dynamic scaling for headings
+=======
+>>>>>>> Stashed changes
             bool is_bold = epub::hasStyle(element.style, epub::TextStyle::Bold);
             bool is_italic = epub::hasStyle(element.style, epub::TextStyle::Italic);
             bool has_underline = epub::hasStyle(element.style, epub::TextStyle::Underline);
@@ -403,6 +467,7 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
             int base_type_size = getFontSizeForType(element.type, font_size_);
             int text_size = is_small ? static_cast<int>(base_type_size * 0.85) : base_type_size;
             
+<<<<<<< Updated upstream
             // Use custom font family if provided, otherwise fallback to default
             std::wstring family_to_use = font_name_;
             if (!element.font_family.empty()) {
@@ -473,11 +538,66 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
                 }
             }
             
+=======
+            std::wstring family_to_use = font_name_;
+            if (!element.font_family.empty()) {
+                family_to_use = std::wstring(element.font_family.begin(), element.font_family.end());
+            }
+            
+            HFONT font = CreateFontWithFamily(text_size, is_bold, is_italic, 
+                                            has_underline, has_strikethrough, family_to_use);
+            
+            HFONT old_font = (HFONT)SelectObject(hdc, font);
+            
+            if (element.type == epub::ElementType::Link) {
+                SetTextColor(hdc, RGB(0, 0, 255));
+            } else if (element.type == epub::ElementType::Quote) {
+                SetTextColor(hdc, RGB(80, 80, 80));
+            } else {
+                SetTextColor(hdc, RGB(0, 0, 0));
+            }
+            
+            RECT text_rect = rect;
+            text_rect.top = y_pos;
+            
+            int indent_pixels = static_cast<int>(element.text_indent * font_size_);
+            text_rect.left += indent_pixels;
+            
+            UINT format = DT_NOPREFIX | DT_WORDBREAK;
+            
+            switch (element.align) {
+                case epub::TextAlign::Center:
+                    format |= DT_CENTER;
+                    text_rect.left = rect.left;
+                    break;
+                case epub::TextAlign::Right:
+                    format |= DT_RIGHT;
+                    text_rect.left = rect.left;
+                    break;
+                case epub::TextAlign::Justify:
+                    format |= DT_LEFT;
+                    break;
+                default:
+                    format |= DT_LEFT;
+                    break;
+            }
+            
+            RECT calculation_rect = text_rect;
+            DrawTextW(hdc, element.content.c_str(), -1, &calculation_rect, format | DT_CALCRECT);
+            int height_drawn = calculation_rect.bottom - calculation_rect.top;
+            
+            DrawTextW(hdc, element.content.c_str(), -1, &text_rect, format);
+            
+            y_pos += height_drawn;
+            
+>>>>>>> Stashed changes
             SelectObject(hdc, old_font);
             DeleteObject(font);
             break;
         }
     }
+    
+    y_pos += margin_bottom_pixels;
 }
 
 void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos) {

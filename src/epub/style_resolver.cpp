@@ -310,7 +310,10 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
+<<<<<<< Updated upstream
     // Collect all matching rules with their specificity
+=======
+>>>>>>> Stashed changes
     std::vector<std::pair<int, const CSSRule*>> matching_rules;
     
     for (const CSSRule& rule : rules_) {
@@ -319,9 +322,15 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
         }
     }
     
+<<<<<<< Updated upstream
     // DEBUG: Log matched rules for first few elements
     static int debug_count = 0;
     if (debug_count < 10 && !matching_rules.empty()) {
+=======
+    // DEBUG: Enable this for first 5 elements
+    static int debug_count = 0;
+    if (debug_count < 5 && !matching_rules.empty()) {
+>>>>>>> Stashed changes
         LOG_DEBUG("Element", element->getTagName(), "matched", matching_rules.size(), "rules");
         for (const auto& pair : matching_rules) {
             LOG_DEBUG("  Selector:", pair.second->selector, "specificity:", pair.first);
@@ -329,7 +338,10 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
         debug_count++;
     }
     
+<<<<<<< Updated upstream
     // Sort by specificity (lower first, so higher specificity overwrites)
+=======
+>>>>>>> Stashed changes
     std::sort(matching_rules.begin(), matching_rules.end(),
              [](const auto& a, const auto& b) { return a.first < b.first; });
     
@@ -583,20 +595,29 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         else if (pseudo.find(":last-of-type") == 0) {
             if (!isLastOfType(element)) return false;
         }
-        else if (pseudo.find(":not(") == 0) {
-            size_t paren_close = pseudo.rfind(')');
-            if (paren_close != std::string::npos) {
-                std::string inner = pseudo.substr(5, paren_close - 5);
-                std::vector<std::string> not_selectors = splitSelectors(inner);
-                
-                for (const std::string& not_sel : not_selectors) {
-                    std::string trimmed_not = trim(not_sel);
-                    if (matchesSimpleSelector(element, trimmed_not)) {
-                        return false;
-                    }
-                }
-            }
-        }
+		else if (pseudo.find(":not(") == 0) {
+			size_t paren_close = pseudo.rfind(')');
+			if (paren_close != std::string::npos) {
+				std::string inner = pseudo.substr(5, paren_close - 5);
+				
+				// Handle comma-separated selectors in :not()
+				std::vector<std::string> not_selectors = splitSelectors(inner);
+				
+				bool any_match = false;
+				for (const std::string& not_sel : not_selectors) {
+					std::string trimmed_not = trim(not_sel);
+					if (matchesSimpleSelector(element, trimmed_not)) {
+						any_match = true;
+						break;
+					}
+				}
+				
+				// :not() fails if ANY selector matches
+				if (any_match) {
+					return false;
+				}
+			}
+		}
         else if (pseudo.find(":is(") == 0 || pseudo.find(":where(") == 0) {
             size_t paren_close = pseudo.rfind(')');
             if (paren_close != std::string::npos) {
@@ -1125,32 +1146,6 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
             style.hyphens = ComputedStyle::Hyphens::Auto;
         }
     }
-	else if (prop == "text-indent") {
-        // Parse value with unit
-        float num = 0.0f;
-        size_t unit_pos = 0;
-        
-        try {
-            num = std::stof(val, &unit_pos);
-        } catch (...) {
-            return;
-        }
-        
-        std::string unit = trim(val.substr(unit_pos));
-        
-        // Store in em units for proper scaling
-        if (unit.empty() || unit == "px") {
-            style.text_indent = num / BASE_FONT_SIZE; // Convert px to em
-        } else if (unit == "em") {
-            style.text_indent = num;  // Already in em
-        } else if (unit == "rem") {
-            style.text_indent = num;  // rem same as em for text-indent
-        } else if (unit == "%") {
-            style.text_indent = num / 100.0f;
-        }
-        
-        LOG_DEBUG("Applied text-indent:", num, unit, "->", style.text_indent, "em");
-    }
     else if (prop == "page-break-before") {
         style.page_break_before = parsePageBreak(val);
     }
@@ -1160,6 +1155,47 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     else if (prop == "page-break-inside") {
         style.page_break_inside = parsePageBreak(val);
     }
+	else if (prop == "font-variant-caps") {
+		if (val == "small-caps") {
+			style.font_variant_caps = ComputedStyle::FontVariantCaps::SmallCaps;
+		} else if (val == "all-small-caps") {
+			style.font_variant_caps = ComputedStyle::FontVariantCaps::AllSmallCaps;
+		} else {
+			style.font_variant_caps = ComputedStyle::FontVariantCaps::Normal;
+		}
+	}
+	else if (prop == "letter-spacing") {
+		if (val == "normal") {
+			style.letter_spacing = 0.0f;
+		} else {
+			style.letter_spacing = parseLength(val, 1.0f);
+		}
+	}
+	else if (prop == "text-indent") {
+		float num = 0.0f;
+		size_t unit_pos = 0;
+		
+		try {
+			num = std::stof(val, &unit_pos);
+		} catch (...) {
+			return;
+		}
+		
+		std::string unit = trim(val.substr(unit_pos));
+		
+		// Store in em units
+		if (unit.empty() || unit == "px") {
+			style.text_indent = num / BASE_FONT_SIZE;
+		} else if (unit == "em") {
+			style.text_indent = num;
+		} else if (unit == "rem") {
+			style.text_indent = num;
+		} else if (unit == "%") {
+			style.text_indent = num / 100.0f;
+		}
+		
+		LOG_DEBUG("Applied text-indent:", num, unit, "->", style.text_indent, "em");
+	}
 }
 
 DisplayType StyleResolver::parseDisplay(const std::string& value) {
@@ -1273,6 +1309,7 @@ ComputedStyle::Color StyleResolver::parseColor(const std::string& value) {
 
 float StyleResolver::parseLength(const std::string& value, float base_size) {
     if (value.empty()) return 0.0f;
+    if (toLowerCase(value) == "normal") return base_size;
     
     float num = 0.0f;
     size_t unit_pos = 0;

@@ -14,7 +14,9 @@ enum class TextStyle {
     Monospace = 1 << 4,
     Small = 1 << 5,
     Subscript = 1 << 6,
-    Superscript = 1 << 7
+    Superscript = 1 << 7,
+    SmallCaps = 1 << 8,
+    AllSmallCaps = 1 << 9
 };
 
 inline TextStyle operator|(TextStyle a, TextStyle b) {
@@ -62,7 +64,23 @@ struct TextElement {
     std::string image_id;
     std::string link_href;
     int list_level;
-    float text_indent;  // In em units
+    float text_indent;
+    
+    float margin_top = 0.0f;
+    float margin_bottom = 0.0f;
+    float margin_left = 0.0f;
+    float margin_right = 0.0f;
+    
+    float padding_top = 0.0f;
+    float padding_bottom = 0.0f;
+    float padding_left = 0.0f;
+    float padding_right = 0.0f;
+    
+    std::string font_family;
+    float letter_spacing = 0.0f;
+    float line_height = 1.2f;
+    
+    bool is_inline_continuation = false;
     
     // NEW: Style properties passed explicitly to avoid LayoutEngine hacks
     float margin_top = 0.0f;    // In pixels

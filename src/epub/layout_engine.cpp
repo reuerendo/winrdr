@@ -62,6 +62,14 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     const std::string tag = element->getTagName();
     const ComputedStyle& style = element->computed_style;
     
+<<<<<<< Updated upstream
+=======
+    // Skip if element should break to new page
+    if (style.page_break_before == ComputedStyle::PageBreak::Always) {
+        flushInlineContent();
+    }
+    
+>>>>>>> Stashed changes
     if (tag == "br") {
         if (in_inline_context_) {
             flushInlineContent();
@@ -117,7 +125,10 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         std::string old_font_family = current_font_family_;
         bool was_inline = in_inline_context_;
         
+<<<<<<< Updated upstream
         // Update context based on tag and style
+=======
+>>>>>>> Stashed changes
         if (tag == "p") current_block_type_ = ElementType::Paragraph;
         else if (tag == "h1") current_block_type_ = ElementType::Heading1;
         else if (tag == "h2") current_block_type_ = ElementType::Heading2;
@@ -151,7 +162,10 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         flushInlineContent();
         
+<<<<<<< Updated upstream
         // Restore previous context
+=======
+>>>>>>> Stashed changes
         current_block_type_ = old_block_type;
         current_inline_align_ = old_align;
         current_text_indent_ = old_text_indent;
@@ -162,11 +176,17 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         in_inline_context_ = was_inline;
         
     } else {
+<<<<<<< Updated upstream
         // Inline element processing
         TextStyle old_style = current_inline_style_;
         TextStyle new_style = computeTextStyle(style);
         
         // Merge inline styles (e.g., bold + italic)
+=======
+        TextStyle old_style = current_inline_style_;
+        TextStyle new_style = computeTextStyle(style);
+        
+>>>>>>> Stashed changes
         current_inline_style_ = current_inline_style_ | new_style;
         
         bool was_inline = in_inline_context_;
@@ -188,12 +208,18 @@ void LayoutEngine::layoutText(TextNode* text) {
     
     std::wstring wide_text = utf8ToWide(text->getText());
     ComputedStyle::WhiteSpace ws = ComputedStyle::WhiteSpace::Normal;
+<<<<<<< Updated upstream
+=======
+    ComputedStyle::TextTransform transform = ComputedStyle::TextTransform::None;
+>>>>>>> Stashed changes
     
     if (text->parent) {
         ws = text->parent->computed_style.white_space;
+        transform = text->parent->computed_style.text_transform;
     }
     
     wide_text = processWhitespace(wide_text, ws);
+    wide_text = applyTextTransform(wide_text, transform);
     
     if (!wide_text.empty()) {
         current_inline_text_ += wide_text;
@@ -212,8 +238,11 @@ void LayoutEngine::flushInlineContent() {
     elem.align = current_inline_align_;
     elem.list_level = current_list_level_;
     elem.text_indent = current_text_indent_;
+<<<<<<< Updated upstream
     
     // Apply block-level styles
+=======
+>>>>>>> Stashed changes
     elem.margin_top = current_margin_top_;
     elem.margin_bottom = current_margin_bottom_;
     elem.font_family = current_font_family_;
@@ -238,11 +267,23 @@ TextStyle LayoutEngine::computeTextStyle(const ComputedStyle& style) {
     if (style.strikethrough) ts = ts | TextStyle::Strikethrough;
     if (style.monospace) ts = ts | TextStyle::Monospace;
     
+<<<<<<< Updated upstream
     // Scale-based styles
+=======
+>>>>>>> Stashed changes
     if (style.font_size_multiplier < 0.9f) ts = ts | TextStyle::Small;
     
     if (style.vertical_align == ComputedStyle::VerticalAlign::Sub) ts = ts | TextStyle::Subscript;
     else if (style.vertical_align == ComputedStyle::VerticalAlign::Super) ts = ts | TextStyle::Superscript;
+<<<<<<< Updated upstream
+=======
+    
+    if (style.font_variant_caps == ComputedStyle::FontVariantCaps::SmallCaps) {
+        ts = ts | TextStyle::SmallCaps;
+    } else if (style.font_variant_caps == ComputedStyle::FontVariantCaps::AllSmallCaps) {
+        ts = ts | TextStyle::AllSmallCaps;
+    }
+>>>>>>> Stashed changes
     
     return ts;
 }
@@ -285,11 +326,28 @@ std::wstring LayoutEngine::processWhitespace(const std::wstring& text, ComputedS
 
 std::wstring LayoutEngine::applyTextTransform(const std::wstring& text, ComputedStyle::TextTransform transform) {
     if (transform == ComputedStyle::TextTransform::None) return text;
+<<<<<<< Updated upstream
+=======
+    
+>>>>>>> Stashed changes
     std::wstring result = text;
     if (transform == ComputedStyle::TextTransform::Uppercase) {
         for (wchar_t& c : result) c = towupper(c);
     } else if (transform == ComputedStyle::TextTransform::Lowercase) {
         for (wchar_t& c : result) c = towlower(c);
+<<<<<<< Updated upstream
+=======
+    } else if (transform == ComputedStyle::TextTransform::Capitalize) {
+        bool capitalize_next = true;
+        for (wchar_t& c : result) {
+            if (std::isspace(c)) {
+                capitalize_next = true;
+            } else if (capitalize_next) {
+                c = towupper(c);
+                capitalize_next = false;
+            }
+        }
+>>>>>>> Stashed changes
     }
     return result;
 }
