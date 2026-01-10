@@ -1,51 +1,65 @@
 #include "page_renderer.h"
 #include "../utils/logger.h"
-#include <algorithm>
 #include <gdiplus.h>
+#include <algorithm>
 
 #pragma comment(lib, "gdiplus.lib")
 
+<<<<<<< Updated upstream
 #undef min
 #undef max
+=======
+using namespace Gdiplus;
+>>>>>>> Stashed changes
 
 PageRenderer::PageRenderer() 
-    : current_page_(0)
-    , viewport_width_(0)
+    : viewport_width_(0)
     , viewport_height_(0)
-    , margin_(20)
-    , font_name_(L"Arial")
-    , font_size_(20)
-    , normal_font_(nullptr)
-    , bold_font_(nullptr)
-    , italic_font_(nullptr)
-    , bold_italic_font_(nullptr)
-    , mono_font_(nullptr)
-    , mono_bold_font_(nullptr)
+    , margin_(0)
+    , current_page_(0)
+    , font_size_(16)
     , image_cache_(nullptr)
 {
+    GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&gdiplusToken_, &gdiplusStartupInput, NULL);
 }
 
 PageRenderer::~PageRenderer() {
-    if (normal_font_) DeleteObject(normal_font_);
-    if (bold_font_) DeleteObject(bold_font_);
-    if (italic_font_) DeleteObject(italic_font_);
-    if (bold_italic_font_) DeleteObject(bold_italic_font_);
-    if (mono_font_) DeleteObject(mono_font_);
-    if (mono_bold_font_) DeleteObject(mono_bold_font_);
+    GdiplusShutdown(gdiplusToken_);
 }
 
-void PageRenderer::setContent(const epub::FormattedContent& content) {
-    content_ = content;
-    current_page_ = 0;
-    pages_.clear();
+void PageRenderer::setViewport(int width, int height, int margin) {
+    LOG_DEBUG("Setting viewport:", width, "x", height, "margin:", margin);
     
-    LOG_DEBUG("Content set, elements:", content_.size());
+    viewport_width_ = width;
+    viewport_height_ = height;
+    margin_ = margin;
+    
+    recalculatePages();
+}
+
+void PageRenderer::setFont(const std::wstring& family, int size) {
+    LOG_DEBUG("Setting font:", size);
+    font_family_ = family;
+    font_size_ = size;
+    
+    recalculatePages();
+}
+
+void PageRenderer::setContent(const std::vector<epub::RenderLine>& lines) {
+    LOG_INFO("Setting content, lines:", lines.size());
+    
+    lines_ = lines;
+    current_page_ = 0;
+    
+    recalculatePages();
 }
 
 void PageRenderer::setImageCache(epub::ImageCache* cache) {
     image_cache_ = cache;
 }
 
+<<<<<<< Updated upstream
 void PageRenderer::setViewport(int width, int height, int margin) {
     viewport_width_ = width;
     viewport_height_ = height;
@@ -120,14 +134,20 @@ HFONT PageRenderer::selectFontForStyle(epub::TextStyle style) {
 void PageRenderer::calculatePages(HDC hdc) {
     if (content_.empty() || viewport_width_ <= 0 || viewport_height_ <= 0) {
         LOG_WARNING("Cannot calculate pages: empty content or invalid viewport");
+=======
+void PageRenderer::recalculatePages() {
+    if (lines_.empty() || viewport_height_ <= margin_ * 2) {
+        pages_.clear();
+>>>>>>> Stashed changes
         return;
     }
     
-    pages_.clear();
+    int page_height = viewport_height_ - margin_ * 2;
     
-    int content_height = viewport_height_ - 2 * margin_;
-    int content_width = viewport_width_ - 2 * margin_;
+    epub::LayoutEngine layout;
+    pages_ = layout.splitIntoPages(lines_, page_height);
     
+<<<<<<< Updated upstream
     size_t elem_start = 0;
     int current_height = 0;
     
@@ -273,18 +293,15 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
     }
     
     return LINE_SPACING;
+=======
+    LOG_INFO("Recalculated pages:", pages_.size());
+>>>>>>> Stashed changes
 }
 
 bool PageRenderer::nextPage() {
-    if (pages_.empty()) {
-        HDC hdc = GetDC(NULL);
-        calculatePages(hdc);
-        ReleaseDC(NULL, hdc);
-    }
-    
     if (current_page_ + 1 < pages_.size()) {
         current_page_++;
-        LOG_DEBUG("Next page:", current_page_ + 1, "/", pages_.size());
+        LOG_DEBUG("Next page:", current_page_);
         return true;
     }
     return false;
@@ -293,39 +310,30 @@ bool PageRenderer::nextPage() {
 bool PageRenderer::prevPage() {
     if (current_page_ > 0) {
         current_page_--;
-        LOG_DEBUG("Prev page:", current_page_ + 1, "/", pages_.size());
+        LOG_DEBUG("Prev page:", current_page_);
         return true;
     }
     return false;
 }
 
 void PageRenderer::goToPage(size_t page) {
-    if (pages_.empty()) {
-        HDC hdc = GetDC(NULL);
-        calculatePages(hdc);
-        ReleaseDC(NULL, hdc);
-    }
-    
     if (page < pages_.size()) {
         current_page_ = page;
-        LOG_DEBUG("Go to page:", current_page_ + 1, "/", pages_.size());
+        LOG_DEBUG("Go to page:", current_page_);
     }
 }
 
 void PageRenderer::render(HDC hdc) {
-    if (pages_.empty()) {
-        calculatePages(hdc);
-    }
-    
     if (pages_.empty() || current_page_ >= pages_.size()) {
-        LOG_WARNING("Nothing to render");
         return;
     }
     
-    const PageBreak& page = pages_[current_page_];
+    Graphics graphics(hdc);
+    graphics.SetTextRenderingHint(TextRenderingHintAntiAlias);
     
-    SetBkMode(hdc, TRANSPARENT);
+    const epub::PageInfo& page = pages_[current_page_];
     
+<<<<<<< Updated upstream
     int y_pos = margin_;
     
     for (size_t i = 0; i < page.element_count; i++) {
@@ -571,76 +579,149 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             DeleteObject(font);
             break;
         }
+=======
+    int y_offset = margin_ - page.start_y;
+    
+    for (const epub::RenderLine* line : page.lines) {
+        renderLine(graphics, *line, y_offset);
     }
 }
 
-void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos) {
-    if (!image_cache_) return;
+void PageRenderer::renderLine(Graphics& graphics, const epub::RenderLine& line, int y_offset) {
+    int screen_y = line.start_y + y_offset;
     
-    const epub::ImageData* img_data = image_cache_->getImage(image_id);
-    if (!img_data) {
-        LOG_WARNING("Image not found in cache:", image_id);
+    if (line.type == epub::RenderLine::Type::Text) {
+        renderTextLine(graphics, line, screen_y);
+    }
+    else if (line.type == epub::RenderLine::Type::Image) {
+        renderImage(graphics, line, screen_y);
+>>>>>>> Stashed changes
+    }
+}
+
+void PageRenderer::renderTextLine(Graphics& graphics, const epub::RenderLine& line, int y) {
+    const auto& style = line.style;
+    
+    // Calculate font size
+    int font_size = (int)(font_size_ * style.font_size_multiplier);
+    
+    // Font style
+    INT font_style_flags = FontStyleRegular;
+    if (style.bold) font_style_flags |= FontStyleBold;
+    if (style.italic) font_style_flags |= FontStyleItalic;
+    if (style.underline) font_style_flags |= FontStyleUnderline;
+    if (style.strikethrough) font_style_flags |= FontStyleStrikeout;
+    
+    // Create font
+    FontFamily fontFamily(style.monospace ? L"Courier New" : font_family_.c_str());
+    Font font(&fontFamily, (REAL)font_size, font_style_flags, UnitPixel);
+    
+    // Text color
+    SolidBrush brush(Color(255, style.text_color.r, style.text_color.g, style.text_color.b));
+    
+    // Calculate X position based on alignment
+    int x = margin_;
+    
+    if (style.text_align == epub::ComputedStyle::TextAlign::Center) {
+        RectF layoutRect((REAL)margin_, (REAL)y, 
+                        (REAL)(viewport_width_ - margin_ * 2), (REAL)line.height);
+        StringFormat format;
+        format.SetAlignment(StringAlignmentCenter);
+        graphics.DrawString(line.text.c_str(), -1, &font, layoutRect, &format, &brush);
+        return;
+    }
+    else if (style.text_align == epub::ComputedStyle::TextAlign::Right) {
+        RectF layoutRect((REAL)margin_, (REAL)y, 
+                        (REAL)(viewport_width_ - margin_ * 2), (REAL)line.height);
+        StringFormat format;
+        format.SetAlignment(StringAlignmentFar);
+        graphics.DrawString(line.text.c_str(), -1, &font, layoutRect, &format, &brush);
         return;
     }
     
-    int content_width = rect.right - rect.left;
-    
-    float scale = static_cast<float>(content_width) / img_data->width;
-    if (scale > 1.0f) scale = 1.0f;
-    
-    int draw_width = static_cast<int>(img_data->width * scale);
-    int draw_height = static_cast<int>(img_data->height * scale);
-    
-    static bool gdiplus_initialized = false;
-    static ULONG_PTR gdiplusToken;
-    
-    if (!gdiplus_initialized) {
-        Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-        Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-        gdiplus_initialized = true;
+    // Adjust Y for subscript/superscript
+    int adjusted_y = y;
+    if (style.vertical_align == epub::ComputedStyle::VerticalAlign::Super) {
+        adjusted_y -= font_size / 3;
+    } else if (style.vertical_align == epub::ComputedStyle::VerticalAlign::Sub) {
+        adjusted_y += font_size / 3;
     }
     
-    Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(
-        img_data->width, 
-        img_data->height,
-        img_data->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB
-    );
+    // Draw text
+    PointF point((REAL)x, (REAL)adjusted_y);
+    graphics.DrawString(line.text.c_str(), -1, &font, point, &brush);
+}
+
+void PageRenderer::renderImage(Graphics& graphics, const epub::RenderLine& line, int y) {
+    if (!image_cache_) return;
     
-    if (bitmap) {
-        Gdiplus::BitmapData bitmapData;
-        Gdiplus::Rect bitmap_rect(0, 0, img_data->width, img_data->height);
+    const epub::ImageData* img_data = image_cache_->getImage(line.image_id);
+    if (!img_data) {
+        LOG_WARNING("Image not found:", line.image_id);
+        return;
+    }
+    
+    // Create GDI+ bitmap from raw data
+    Bitmap* bitmap = nullptr;
+    
+    if (img_data->channels == 3) {
+        // RGB
+        bitmap = new Bitmap(img_data->width, img_data->height, PixelFormat24bppRGB);
         
-        bitmap->LockBits(&bitmap_rect, Gdiplus::ImageLockModeWrite, 
-                        img_data->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB,
-                        &bitmapData);
+        BitmapData bitmapData;
+        Rect rect(0, 0, img_data->width, img_data->height);
+        bitmap->LockBits(&rect, ImageLockModeWrite, PixelFormat24bppRGB, &bitmapData);
         
-        for (int y = 0; y < img_data->height; y++) {
-            unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
-            const unsigned char* src = img_data->pixels.data() + y * img_data->width * img_data->channels;
-            
-            for (int x = 0; x < img_data->width; x++) {
-                if (img_data->channels == 4) {
-                    dest[x * 4 + 0] = src[x * 4 + 2];
-                    dest[x * 4 + 1] = src[x * 4 + 1];
-                    dest[x * 4 + 2] = src[x * 4 + 0];
-                    dest[x * 4 + 3] = src[x * 4 + 3];
-                } else {
-                    dest[x * 3 + 0] = src[x * 3 + 2];
-                    dest[x * 3 + 1] = src[x * 3 + 1];
-                    dest[x * 3 + 2] = src[x * 3 + 0];
-                }
+        unsigned char* dest = (unsigned char*)bitmapData.Scan0;
+        const unsigned char* src = img_data->pixels.data();
+        
+        for (int row = 0; row < img_data->height; row++) {
+            for (int col = 0; col < img_data->width; col++) {
+                // Convert RGB to BGR
+                dest[col * 3 + 0] = src[col * 3 + 2]; // B
+                dest[col * 3 + 1] = src[col * 3 + 1]; // G
+                dest[col * 3 + 2] = src[col * 3 + 0]; // R
             }
+            dest += bitmapData.Stride;
+            src += img_data->width * 3;
         }
         
         bitmap->UnlockBits(&bitmapData);
+    }
+    else if (img_data->channels == 4) {
+        // RGBA
+        bitmap = new Bitmap(img_data->width, img_data->height, PixelFormat32bppARGB);
         
-        Gdiplus::Graphics graphics(hdc);
-        int x_pos = rect.left + (content_width - draw_width) / 2;
+        BitmapData bitmapData;
+        Rect rect(0, 0, img_data->width, img_data->height);
+        bitmap->LockBits(&rect, ImageLockModeWrite, PixelFormat32bppARGB, &bitmapData);
         
-        graphics.DrawImage(bitmap, x_pos, y_pos, draw_width, draw_height);
+        unsigned char* dest = (unsigned char*)bitmapData.Scan0;
+        const unsigned char* src = img_data->pixels.data();
         
-        y_pos += draw_height;
+        for (int row = 0; row < img_data->height; row++) {
+            for (int col = 0; col < img_data->width; col++) {
+                dest[col * 4 + 0] = src[col * 4 + 2]; // B
+                dest[col * 4 + 1] = src[col * 4 + 1]; // G
+                dest[col * 4 + 2] = src[col * 4 + 0]; // R
+                dest[col * 4 + 3] = src[col * 4 + 3]; // A
+            }
+            dest += bitmapData.Stride;
+            src += img_data->width * 4;
+        }
         
+        bitmap->UnlockBits(&bitmapData);
+    }
+    
+    if (bitmap) {
+        int x = margin_;
+        
+        // Center image if narrower than viewport
+        if (line.image_width < viewport_width_ - margin_ * 2) {
+            x = (viewport_width_ - line.image_width) / 2;
+        }
+        
+        graphics.DrawImage(bitmap, x, y, line.image_width, line.image_height);
         delete bitmap;
     }
 }

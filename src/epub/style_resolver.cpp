@@ -3,13 +3,13 @@
 #include <algorithm>
 #include <sstream>
 #include <cctype>
-#include <cmath>
 
 namespace epub {
 
 StyleResolver::StyleResolver() {}
 
 void StyleResolver::addStylesheet(const std::string& css) {
+<<<<<<< Updated upstream
     size_t pos = 0;
     
     while (pos < css.length()) {
@@ -21,6 +21,444 @@ void StyleResolver::addStylesheet(const std::string& css) {
         if (pos >= css.length()) break;
         
         // Find selector (everything before {)
+=======
+    parseStylesheet(css, rules_);
+    LOG_DEBUG("Added stylesheet, total rules:", rules_.size());
+}
+
+void StyleResolver::clear() {
+    rules_.clear();
+}
+
+void StyleResolver::resolveStyles(DocumentNode* document) {
+    LOG_DEBUG("Resolving styles for document");
+    
+    ComputedStyle root_style;
+    
+    // Start cascade from root
+    for (auto& child : document->children) {
+        cascadeStyles(child.get(), root_style);
+    }
+    
+    LOG_DEBUG("Style resolution complete");
+}
+
+void StyleResolver::cascadeStyles(DOMNode* node, ComputedStyle parent_style) {
+    if (!node) return;
+    
+    if (node->getType() == NodeType::Element) {
+        ElementNode* element = static_cast<ElementNode*>(node);
+        
+        ComputedStyle style = parent_style;
+        
+        // Step 1: Apply default/UA styles
+        applyDefaultStyles(element, style);
+        
+        // Step 2: Apply matching CSS rules
+        applyMatchingRules(element, style);
+        
+        // Step 3: Apply inline styles
+        applyInlineStyle(element, style);
+        
+        // Step 4: Compute final values
+        computeFinalStyle(style, parent_style);
+        
+        element->computed_style = style;
+        
+        // Cascade to children
+        for (auto& child : element->children) {
+            cascadeStyles(child.get(), style);
+        }
+    }
+    else if (node->getType() == NodeType::Text) {
+        // Text nodes inherit parent style
+        node->computed_style = parent_style;
+    }
+}
+
+void StyleResolver::applyDefaultStyles(ElementNode* element, ComputedStyle& style) {
+    std::string tag = element->getTagName();
+    
+    // Block elements
+    if (tag == "div" || tag == "p" || tag == "h1" || tag == "h2" || 
+        tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6" ||
+        tag == "blockquote" || tag == "pre" || tag == "section" ||
+        tag == "article" || tag == "header" || tag == "footer") {
+        style.display = DisplayType::Block;
+    }
+    
+    // Headings
+    if (tag == "h1") {
+        style.font_size_multiplier = 2.0f;
+        style.bold = true;
+        style.margin_top = 0.67f;
+        style.margin_bottom = 0.67f;
+    } else if (tag == "h2") {
+        style.font_size_multiplier = 1.5f;
+        style.bold = true;
+        style.margin_top = 0.75f;
+        style.margin_bottom = 0.75f;
+    } else if (tag == "h3") {
+        style.font_size_multiplier = 1.17f;
+        style.bold = true;
+        style.margin_top = 0.83f;
+        style.margin_bottom = 0.83f;
+    } else if (tag == "h4") {
+        style.bold = true;
+        style.margin_top = 1.0f;
+        style.margin_bottom = 1.0f;
+    } else if (tag == "h5") {
+        style.font_size_multiplier = 0.83f;
+        style.bold = true;
+        style.margin_top = 1.5f;
+        style.margin_bottom = 1.5f;
+    } else if (tag == "h6") {
+        style.font_size_multiplier = 0.67f;
+        style.bold = true;
+        style.margin_top = 2.33f;
+        style.margin_bottom = 2.33f;
+    }
+    
+    // Paragraph
+    if (tag == "p") {
+        style.margin_top = 1.0f;
+        style.margin_bottom = 1.0f;
+    }
+    
+    // Text formatting
+    if (tag == "b" || tag == "strong") {
+        style.bold = true;
+    }
+    if (tag == "i" || tag == "em" || tag == "cite") {
+        style.italic = true;
+    }
+    if (tag == "u") {
+        style.underline = true;
+    }
+    if (tag == "s" || tag == "strike" || tag == "del") {
+        style.strikethrough = true;
+    }
+    if (tag == "code" || tag == "pre" || tag == "tt") {
+        style.monospace = true;
+    }
+    if (tag == "small") {
+        style.font_size_multiplier = 0.83f;
+    }
+    if (tag == "big") {
+        style.font_size_multiplier = 1.17f;
+    }
+    
+    // Subscript/superscript
+    if (tag == "sub") {
+        style.vertical_align = ComputedStyle::VerticalAlign::Sub;
+        style.font_size_multiplier = 0.83f;
+    }
+    if (tag == "sup") {
+        style.vertical_align = ComputedStyle::VerticalAlign::Super;
+        style.font_size_multiplier = 0.83f;
+    }
+    
+    // Blockquote
+    if (tag == "blockquote") {
+        style.margin_left = 1.5f;
+        style.margin_right = 1.5f;
+        style.margin_top = 1.0f;
+        style.margin_bottom = 1.0f;
+    }
+    
+    // Pre
+    if (tag == "pre") {
+        style.white_space = ComputedStyle::WhiteSpace::Pre;
+    }
+    
+    // Center
+    if (tag == "center") {
+        style.display = DisplayType::Block;
+        style.text_align = ComputedStyle::TextAlign::Center;
+    }
+    
+    // List items
+    if (tag == "li") {
+        style.display = DisplayType::ListItem;
+        style.margin_left = 1.0f;
+    }
+    
+    // Table elements
+    if (tag == "table") {
+        style.display = DisplayType::Table;
+    }
+    if (tag == "tr") {
+        style.display = DisplayType::TableRow;
+    }
+    if (tag == "td" || tag == "th") {
+        style.display = DisplayType::TableCell;
+        style.padding_left = 0.5f;
+        style.padding_right = 0.5f;
+    }
+    if (tag == "th") {
+        style.bold = true;
+    }
+}
+
+void StyleResolver::applyMatchingRules(ElementNode* element, ComputedStyle& style) {
+    struct MatchedRule {
+        const CSSRule* rule;
+        int specificity;
+        size_t order;
+    };
+    
+    std::vector<MatchedRule> matched;
+    
+    for (size_t i = 0; i < rules_.size(); i++) {
+        if (selectorMatches(rules_[i].selector, element)) {
+            matched.push_back({&rules_[i], rules_[i].specificity, i});
+        }
+    }
+    
+    // Sort by specificity, then by order
+    std::sort(matched.begin(), matched.end(),
+        [](const MatchedRule& a, const MatchedRule& b) {
+            if (a.specificity != b.specificity) {
+                return a.specificity < b.specificity;
+            }
+            return a.order < b.order;
+        });
+    
+    // Apply rules in order
+    for (const auto& m : matched) {
+        for (const auto& prop : m.rule->properties) {
+            parseProperty(prop.first, prop.second, style);
+        }
+    }
+}
+
+void StyleResolver::applyInlineStyle(ElementNode* element, ComputedStyle& style) {
+    std::string inline_style = element->getAttribute("style");
+    if (inline_style.empty()) return;
+    
+    size_t pos = 0;
+    while (pos < inline_style.length()) {
+        size_t colon = inline_style.find(':', pos);
+        if (colon == std::string::npos) break;
+        
+        std::string name = trim(inline_style.substr(pos, colon - pos));
+        
+        size_t semicolon = inline_style.find(';', colon);
+        if (semicolon == std::string::npos) {
+            semicolon = inline_style.length();
+        }
+        
+        std::string value = trim(inline_style.substr(colon + 1, semicolon - colon - 1));
+        
+        parseProperty(name, value, style);
+        
+        pos = semicolon + 1;
+    }
+}
+
+void StyleResolver::computeFinalStyle(ComputedStyle& style, const ComputedStyle& parent) {
+    // Inherit properties that should be inherited
+    if (!style.has_background) {
+        style.background_color = parent.background_color;
+    }
+}
+
+void StyleResolver::parseProperty(const std::string& name, const std::string& value,
+                                  ComputedStyle& style) {
+    std::string name_lower = toLowerCase(name);
+    std::string value_lower = toLowerCase(value);
+    
+    if (name_lower == "display") {
+        if (value_lower == "none") style.display = DisplayType::None;
+        else if (value_lower == "block") style.display = DisplayType::Block;
+        else if (value_lower == "inline") style.display = DisplayType::Inline;
+        else if (value_lower == "inline-block") style.display = DisplayType::InlineBlock;
+        else if (value_lower == "list-item") style.display = DisplayType::ListItem;
+    }
+    else if (name_lower == "font-weight") {
+        if (value_lower == "bold" || value_lower == "bolder" ||
+            value_lower == "700" || value_lower == "800" || value_lower == "900") {
+            style.bold = true;
+        }
+    }
+    else if (name_lower == "font-style") {
+        if (value_lower == "italic" || value_lower == "oblique") {
+            style.italic = true;
+        }
+    }
+    else if (name_lower == "text-decoration") {
+        if (value_lower.find("underline") != std::string::npos) {
+            style.underline = true;
+        }
+        if (value_lower.find("line-through") != std::string::npos) {
+            style.strikethrough = true;
+        }
+    }
+    else if (name_lower == "font-family") {
+        if (value_lower.find("monospace") != std::string::npos ||
+            value_lower.find("courier") != std::string::npos) {
+            style.monospace = true;
+        }
+    }
+    else if (name_lower == "font-size") {
+        float size = parseLength(value);
+        if (size > 0) {
+            style.font_size_multiplier = size;
+        }
+    }
+    else if (name_lower == "text-align") {
+        if (value_lower == "left") style.text_align = ComputedStyle::TextAlign::Left;
+        else if (value_lower == "right") style.text_align = ComputedStyle::TextAlign::Right;
+        else if (value_lower == "center") style.text_align = ComputedStyle::TextAlign::Center;
+        else if (value_lower == "justify") style.text_align = ComputedStyle::TextAlign::Justify;
+    }
+    else if (name_lower == "vertical-align") {
+        if (value_lower == "sub") style.vertical_align = ComputedStyle::VerticalAlign::Sub;
+        else if (value_lower == "super") style.vertical_align = ComputedStyle::VerticalAlign::Super;
+    }
+    else if (name_lower == "margin-top") {
+        style.margin_top = parseLength(value);
+    }
+    else if (name_lower == "margin-bottom") {
+        style.margin_bottom = parseLength(value);
+    }
+    else if (name_lower == "margin-left") {
+        style.margin_left = parseLength(value);
+    }
+    else if (name_lower == "margin-right") {
+        style.margin_right = parseLength(value);
+    }
+    else if (name_lower == "padding-top") {
+        style.padding_top = parseLength(value);
+    }
+    else if (name_lower == "padding-bottom") {
+        style.padding_bottom = parseLength(value);
+    }
+    else if (name_lower == "color") {
+        style.text_color = parseColor(value);
+    }
+    else if (name_lower == "background-color") {
+        style.background_color = parseColor(value);
+        style.has_background = true;
+    }
+    else if (name_lower == "line-height") {
+        float lh = parseLength(value);
+        if (lh > 0) {
+            style.line_height = lh;
+        }
+    }
+}
+
+bool StyleResolver::selectorMatches(const std::string& selector, ElementNode* element) {
+    std::string sel = trim(selector);
+    
+    // Universal selector
+    if (sel == "*") return true;
+    
+    // Tag selector
+    if (sel == element->getTagName()) return true;
+    
+    // Class selector
+    if (sel[0] == '.') {
+        std::string class_name = sel.substr(1);
+        std::string elem_class = element->getAttribute("class");
+        if (elem_class.find(class_name) != std::string::npos) {
+            return true;
+        }
+    }
+    
+    // ID selector
+    if (sel[0] == '#') {
+        std::string id = sel.substr(1);
+        if (element->getAttribute("id") == id) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+int StyleResolver::calculateSpecificity(const std::string& selector) {
+    int spec = 0;
+    
+    // ID: 100
+    if (selector.find('#') != std::string::npos) {
+        spec += 100;
+    }
+    
+    // Class: 10
+    if (selector.find('.') != std::string::npos) {
+        spec += 10;
+    }
+    
+    // Tag: 1
+    if (selector[0] != '.' && selector[0] != '#') {
+        spec += 1;
+    }
+    
+    return spec;
+}
+
+ComputedStyle::Color StyleResolver::parseColor(const std::string& color_str) {
+    std::string color = toLowerCase(trim(color_str));
+    
+    // Named colors
+    if (color == "black") return ComputedStyle::Color(0, 0, 0);
+    if (color == "white") return ComputedStyle::Color(255, 255, 255);
+    if (color == "red") return ComputedStyle::Color(255, 0, 0);
+    if (color == "green") return ComputedStyle::Color(0, 128, 0);
+    if (color == "blue") return ComputedStyle::Color(0, 0, 255);
+    
+    // Hex color
+    if (color[0] == '#') {
+        std::string hex = color.substr(1);
+        if (hex.length() == 6) {
+            int r = std::stoi(hex.substr(0, 2), nullptr, 16);
+            int g = std::stoi(hex.substr(2, 2), nullptr, 16);
+            int b = std::stoi(hex.substr(4, 2), nullptr, 16);
+            return ComputedStyle::Color(r, g, b);
+        }
+    }
+    
+    return ComputedStyle::Color(0, 0, 0);
+}
+
+float StyleResolver::parseLength(const std::string& length_str) {
+    std::string value = trim(length_str);
+    
+    if (value.empty()) return 0;
+    
+    // Remove units
+    if (value.find("em") != std::string::npos) {
+        value = value.substr(0, value.find("em"));
+        return std::stof(value);
+    }
+    if (value.find("rem") != std::string::npos) {
+        value = value.substr(0, value.find("rem"));
+        return std::stof(value);
+    }
+    if (value.find("px") != std::string::npos) {
+        value = value.substr(0, value.find("px"));
+        return std::stof(value) / 16.0f; // Convert to em
+    }
+    if (value.find("%") != std::string::npos) {
+        value = value.substr(0, value.find("%"));
+        return std::stof(value) / 100.0f;
+    }
+    
+    // Just a number
+    try {
+        return std::stof(value);
+    } catch (...) {
+        return 0;
+    }
+}
+
+void StyleResolver::parseStylesheet(const std::string& css, std::vector<CSSRule>& rules) {
+    size_t pos = 0;
+    
+    while (pos < css.length()) {
+>>>>>>> Stashed changes
         size_t brace_open = css.find('{', pos);
         if (brace_open == std::string::npos) break;
         
@@ -30,8 +468,9 @@ void StyleResolver::addStylesheet(const std::string& css) {
         size_t brace_close = css.find('}', brace_open);
         if (brace_close == std::string::npos) break;
         
-        std::string declarations_str = css.substr(brace_open + 1, brace_close - brace_open - 1);
+        std::string properties = css.substr(brace_open + 1, brace_close - brace_open - 1);
         
+<<<<<<< Updated upstream
         CSSRule rule;
         rule.selector = selector;
         rule.specificity = calculateSpecificity(selector);
@@ -62,24 +501,46 @@ void StyleResolver::parseDeclarations(const std::string& declarations_str,
     while (pos < declarations_str.length()) {
         // Find property name
         size_t colon = declarations_str.find(':', pos);
+=======
+        parseRule(selector, properties, rules);
+        
+        pos = brace_close + 1;
+    }
+}
+
+void StyleResolver::parseRule(const std::string& selector_str, const std::string& properties_str,
+                              std::vector<CSSRule>& rules) {
+    CSSRule rule;
+    rule.selector = toLowerCase(trim(selector_str));
+    rule.specificity = calculateSpecificity(rule.selector);
+    
+    size_t pos = 0;
+    while (pos < properties_str.length()) {
+        size_t colon = properties_str.find(':', pos);
+>>>>>>> Stashed changes
         if (colon == std::string::npos) break;
         
-        std::string property = toLowerCase(trim(declarations_str.substr(pos, colon - pos)));
+        std::string name = toLowerCase(trim(properties_str.substr(pos, colon - pos)));
         
+<<<<<<< Updated upstream
         // Find value
         size_t semicolon = declarations_str.find(';', colon);
+=======
+        size_t semicolon = properties_str.find(';', colon);
+>>>>>>> Stashed changes
         if (semicolon == std::string::npos) {
-            semicolon = declarations_str.length();
+            semicolon = properties_str.length();
         }
         
-        std::string value = trim(declarations_str.substr(colon + 1, semicolon - colon - 1));
+        std::string value = trim(properties_str.substr(colon + 1, semicolon - colon - 1));
         
-        if (!property.empty() && !value.empty()) {
-            out[property] = value;
+        if (!name.empty() && !value.empty()) {
+            rule.properties[name] = value;
         }
         
         pos = semicolon + 1;
     }
+<<<<<<< Updated upstream
 }
 
 void StyleResolver::resolveStyles(DocumentNode* document) {
@@ -613,6 +1074,12 @@ std::string StyleResolver::toLowerCase(const std::string& str) {
     std::transform(result.begin(), result.end(), result.begin(),
                   [](unsigned char c) { return std::tolower(c); });
     return result;
+=======
+    
+    if (!rule.properties.empty()) {
+        rules.push_back(rule);
+    }
+>>>>>>> Stashed changes
 }
 
 std::string StyleResolver::trim(const std::string& str) {
@@ -627,6 +1094,13 @@ std::string StyleResolver::trim(const std::string& str) {
     }
     
     return str.substr(start, end - start);
+}
+
+std::string StyleResolver::toLowerCase(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(),
+                  [](unsigned char c) { return std::tolower(c); });
+    return result;
 }
 
 } // namespace epub

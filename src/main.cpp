@@ -42,7 +42,6 @@ void UpdateTitle() {
         title += L" - Глава " + std::to_wstring(g_current_chapter + 1) + 
                  L" / " + std::to_wstring(g_parser.getChapterCount());
         
-        // Only show page info if pages are calculated
         if (g_renderer.getPageCount() > 0) {
             title += L" - Страница " + std::to_wstring(g_renderer.getCurrentPage() + 1) +
                      L" / " + std::to_wstring(g_renderer.getPageCount());
@@ -71,19 +70,24 @@ void LoadChapter(size_t index) {
     
     g_current_chapter = index;
     
-    epub::FormattedContent content = g_parser.getChapterContent(index);
+    // Get viewport size before parsing
+    RECT rect;
+    GetClientRect(g_hwnd_main, &rect);
+    int viewport_width = rect.right - 80; // margins
     
-    LOG_DEBUG("Chapter content elements:", content.size());
+    g_parser.setViewportWidth(viewport_width);
     
-    g_renderer.setContent(content);
+    std::vector<epub::RenderLine> lines = g_parser.getChapterContent(index);
+    
+    LOG_DEBUG("Chapter lines:", lines.size());
+    
+    g_renderer.setContent(lines);
     
     if (g_hwnd_main) {
         InvalidateRect(g_hwnd_main, nullptr, TRUE);
         UpdateWindow(g_hwnd_main);
         UpdateTitle();
     }
-    
-    // Don't save here - will be saved after goToPage or navigation
 }
 
 LRESULT CALLBACK TOCWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -158,7 +162,6 @@ void ShowTOC() {
         return;
     }
     
-    // Register window class for TOC
     static bool class_registered = false;
     if (!class_registered) {
         WNDCLASSW wc = {};
@@ -171,7 +174,6 @@ void ShowTOC() {
         class_registered = true;
     }
     
-    // Create TOC window
     g_toc_window = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         L"TOCWindowClass",
@@ -183,7 +185,6 @@ void ShowTOC() {
     
     if (!g_toc_window) return;
     
-    // Create listbox inside TOC window
     HWND listbox = CreateWindowExW(
         0,
         WC_LISTBOXW,
@@ -198,10 +199,8 @@ void ShowTOC() {
         return;
     }
     
-    // Set default GUI font for listbox
     SendMessageW(listbox, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
     
-    // Add TOC items
     g_toc_chapter_indices.clear();
     for (const auto& item : toc) {
         std::wstring indent(item.level * 2, L' ');
@@ -238,7 +237,6 @@ void OpenFile() {
             g_current_file = path;
             g_renderer.setImageCache(&g_parser.getImageCache());
             
-            // Try to restore position
             epub::BookPosition pos = POSITION_MGR.loadPosition(path);
             
             if (pos.chapter_index < g_parser.getChapterCount()) {
@@ -247,7 +245,7 @@ void OpenFile() {
                 InvalidateRect(g_hwnd_main, nullptr, TRUE);
                 UpdateWindow(g_hwnd_main);
                 UpdateTitle();
-                SavePosition();  // Save after restoring position
+                SavePosition();
                 LOG_INFO("Restored position:", pos.chapter_index, pos.page_index);
             } else {
                 LoadChapter(0);
@@ -295,7 +293,6 @@ void PrevPage() {
     } else {
         if (g_current_chapter > 0) {
             PrevChapter();
-            // Go to last page of previous chapter
             if (g_renderer.getPageCount() > 0) {
                 g_renderer.goToPage(g_renderer.getPageCount() - 1);
                 InvalidateRect(g_hwnd_main, nullptr, TRUE);
@@ -383,6 +380,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             RECT rect;
             GetClientRect(hwnd, &rect);
             g_renderer.setViewport(rect.right, rect.bottom, 40);
+            
+            // Reload current chapter with new viewport
+            if (g_parser.getChapterCount() > 0) {
+                size_t saved_page = g_renderer.getCurrentPage();
+                LoadChapter(g_current_chapter);
+                g_renderer.goToPage(saved_page);
+            }
+            
             InvalidateRect(hwnd, nullptr, TRUE);
             break;
         }
@@ -421,60 +426,60 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
         
         InitCommonControls();
     
-    WNDCLASSW wc = {};
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hinstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
-    wc.lpszClassName = L"EpubReaderClass";
-    
-    if (!RegisterClassW(&wc)) {
-        LOG_ERROR("Failed to register window class");
-        return 1;
-    }
-    
-    LOG_DEBUG("Window class registered");
-    
-    HMENU menu = CreateMenu();
-    HMENU file_menu = CreateMenu();
-    AppendMenuW(file_menu, MF_STRING, 1, L"Открыть (Ctrl+O)");
-    AppendMenuW(file_menu, MF_STRING, 2, L"Оглавление (Ctrl+T)");
-    AppendMenuW(file_menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(file_menu, MF_STRING, 3, L"Выход");
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)file_menu, L"Файл");
-    
-    HWND hwnd = CreateWindowExW(
-        0,
-        L"EpubReaderClass",
-        L"EPUB Reader",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        600, 800,
-        nullptr, menu, hinstance, nullptr
-    );
-    
-    if (!hwnd) {
-        LOG_ERROR("Failed to create window");
-        return 1;
-    }
-    
-    LOG_INFO("Main window created");
-    
-    ShowWindow(hwnd, cmdshow);
-    UpdateWindow(hwnd);
-    
-    LOG_INFO("Entering message loop");
-    
-    MSG msg;
-    while (GetMessage(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-    
-    LOG_INFO("=== EPUB Reader exiting ===");
-    
-    return (int)msg.wParam;
-    
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = WindowProc;
+        wc.hInstance = hinstance;
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+        wc.lpszClassName = L"EpubReaderClass";
+        
+        if (!RegisterClassW(&wc)) {
+            LOG_ERROR("Failed to register window class");
+            return 1;
+        }
+        
+        LOG_DEBUG("Window class registered");
+        
+        HMENU menu = CreateMenu();
+        HMENU file_menu = CreateMenu();
+        AppendMenuW(file_menu, MF_STRING, 1, L"Открыть (Ctrl+O)");
+        AppendMenuW(file_menu, MF_STRING, 2, L"Оглавление (Ctrl+T)");
+        AppendMenuW(file_menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(file_menu, MF_STRING, 3, L"Выход");
+        AppendMenuW(menu, MF_POPUP, (UINT_PTR)file_menu, L"Файл");
+        
+        HWND hwnd = CreateWindowExW(
+            0,
+            L"EpubReaderClass",
+            L"EPUB Reader",
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT, CW_USEDEFAULT,
+            600, 800,
+            nullptr, menu, hinstance, nullptr
+        );
+        
+        if (!hwnd) {
+            LOG_ERROR("Failed to create window");
+            return 1;
+        }
+        
+        LOG_INFO("Main window created");
+        
+        ShowWindow(hwnd, cmdshow);
+        UpdateWindow(hwnd);
+        
+        LOG_INFO("Entering message loop");
+        
+        MSG msg;
+        while (GetMessage(&msg, nullptr, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        
+        LOG_INFO("=== EPUB Reader exiting ===");
+        
+        return (int)msg.wParam;
+        
     } catch (const std::exception& e) {
         LOG_ERROR("Exception:", e.what());
         return 1;

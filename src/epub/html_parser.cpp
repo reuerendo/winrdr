@@ -13,8 +13,14 @@ void HTMLParserNew::setImageCache(ImageCache* cache) {
     image_cache_ = cache;
 }
 
+<<<<<<< Updated upstream
 FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
                                      const std::string& base_path) {
+=======
+std::vector<RenderLine> HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
+                                             const std::string& base_path,
+                                             int viewport_width, int default_font_size) {
+>>>>>>> Stashed changes
     LOG_DEBUG("Parsing HTML, length:", html.length());
     
     // Step 1: Build DOM tree
@@ -74,11 +80,18 @@ FormattedContent HTMLParserNew::parse(const std::string& html, ZipHandler* zip,
     }
     
     // Step 5: Layout
-    FormattedContent content = layout_engine_.layout(document.get(), image_cache_);
+    std::vector<RenderLine> lines = layout_engine_.layout(document.get(), image_cache_,
+                                                          viewport_width, default_font_size);
     
+<<<<<<< Updated upstream
     LOG_INFO("HTML parsing complete, elements:", content.size());
     
     return content;
+=======
+    LOG_INFO("HTML parsing complete, lines:", lines.size());
+    
+    return lines;
+>>>>>>> Stashed changes
 }
 
 void HTMLParserNew::extractAndLoadImages(DocumentNode* document, ZipHandler* zip,

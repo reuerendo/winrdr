@@ -1,65 +1,53 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <windows.h>
-#include "../epub/formatted_text.h"
+#include "../epub/layout_engine.h"
 #include "../epub/image_cache.h"
+#include <windows.h>
+#include <vector>
+#include <string>
 
-struct PageBreak {
-    size_t element_start;
-    size_t element_count;
-};
+// Forward declaration
+namespace Gdiplus {
+    class Graphics;
+}
 
 class PageRenderer {
 public:
     PageRenderer();
     ~PageRenderer();
     
-    void setContent(const epub::FormattedContent& content);
+    void setViewport(int width, int height, int margin);
+    void setFont(const std::wstring& family, int size);
+    void setContent(const std::vector<epub::RenderLine>& lines);
     void setImageCache(epub::ImageCache* cache);
     
-    void setViewport(int width, int height, int margin);
-    void setFont(const std::wstring& font_name, int font_size);
-    
-    size_t getPageCount() const { return pages_.size(); }
-    size_t getCurrentPage() const { return current_page_; }
+    void render(HDC hdc);
     
     bool nextPage();
     bool prevPage();
     void goToPage(size_t page);
     
-    void render(HDC hdc);
+    size_t getCurrentPage() const { return current_page_; }
+    size_t getPageCount() const { return pages_.size(); }
 
 private:
-    void calculatePages(HDC hdc);
-    void renderElement(HDC hdc, const epub::TextElement& elem, RECT& rect, int& y_pos);
+    void recalculatePages();
+    void renderLine(Gdiplus::Graphics& graphics, const epub::RenderLine& line, int y_offset);
+    void renderTextLine(Gdiplus::Graphics& graphics, const epub::RenderLine& line, int y);
+    void renderImage(Gdiplus::Graphics& graphics, const epub::RenderLine& line, int y);
     
-    HFONT createFont(int size, bool bold, bool italic, bool underline, bool strikethrough);
-    HFONT selectFontForStyle(epub::TextStyle style);
-    int measureElementHeight(HDC hdc, const epub::TextElement& elem, int width);
-    
-    void drawText(HDC hdc, const std::wstring& text, RECT& rect, 
-                  epub::TextAlign align, bool bold, bool italic);
-    void drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos);
-    
-    epub::FormattedContent content_;
-    std::vector<PageBreak> pages_;
-    size_t current_page_;
+    std::vector<epub::RenderLine> lines_;
+    std::vector<epub::PageInfo> pages_;
     
     int viewport_width_;
     int viewport_height_;
     int margin_;
+    size_t current_page_;
     
-    std::wstring font_name_;
+    std::wstring font_family_;
     int font_size_;
     
-    HFONT normal_font_;
-    HFONT bold_font_;
-    HFONT italic_font_;
-    HFONT bold_italic_font_;
-    HFONT mono_font_;
-    HFONT mono_bold_font_;
-    
     epub::ImageCache* image_cache_;
+    
+    ULONG_PTR gdiplusToken_;
 };

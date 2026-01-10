@@ -1,7 +1,7 @@
 #pragma once
 
 #include "zip_handler.h"
-#include "formatted_text.h"
+#include "layout_engine.h"
 #include "html_parser.h"
 #include "image_cache.h"
 #include "toc_parser.h"
@@ -31,12 +31,14 @@ public:
     bool open(const std::string& filepath);
     void close();
     
+    void setViewportWidth(int width);
+    void setDefaultFontSize(int size);
+    
     const Metadata& getMetadata() const { return metadata_; }
     const std::vector<SpineItem>& getSpine() const { return spine_; }
     const std::vector<TOCItem>& getTOC() const { return toc_parser_.getItems(); }
     
-    FormattedContent getChapterContent(size_t index);
-    std::string getChapterText(size_t index);
+    std::vector<RenderLine> getChapterContent(size_t index);
     size_t getChapterCount() const { return spine_.size(); }
     
     ImageCache& getImageCache() { return image_cache_; }
@@ -51,7 +53,6 @@ private:
     bool parseTOC();
     void generateFallbackTOC();
     
-    std::string extractTextFromHTML(const std::string& html);
     std::string findTagContent(const std::string& xml, const std::string& tag);
     std::string findNCXPath();
     std::string tryExtractChapterTitle(const std::string& html);
@@ -66,6 +67,9 @@ private:
     HTMLParserNew html_parser_;
     ImageCache image_cache_;
     TOCParser toc_parser_;
+    
+    int viewport_width_;
+    int default_font_size_;
 };
 
 } // namespace epub

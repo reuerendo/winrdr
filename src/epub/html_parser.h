@@ -1,13 +1,13 @@
 #pragma once
 
-#include "formatted_text.h"
-#include "image_cache.h"
 #include "dom_node.h"
 #include "dom_builder.h"
 #include "style_resolver.h"
 #include "layout_engine.h"
+#include "image_cache.h"
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace epub {
 
@@ -18,8 +18,9 @@ public:
     HTMLParserNew();
     ~HTMLParserNew();
     
-    FormattedContent parse(const std::string& html, ZipHandler* zip, 
-                          const std::string& base_path);
+    std::vector<RenderLine> parse(const std::string& html, ZipHandler* zip, 
+                                  const std::string& base_path,
+                                  int viewport_width, int default_font_size);
     
     void setImageCache(ImageCache* cache);
 

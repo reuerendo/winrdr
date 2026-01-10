@@ -1,16 +1,19 @@
 #pragma once
 
 #include "dom_node.h"
-#include "css_parser.h"
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace epub {
 
+// CSS selector and rules
 struct CSSRule {
     std::string selector;
+    std::unordered_map<std::string, std::string> properties;
     int specificity;
-    std::unordered_map<std::string, std::string> declarations;
+    
+    CSSRule() : specificity(0) {}
 };
 
 class StyleResolver {
@@ -20,23 +23,36 @@ public:
     void addStylesheet(const std::string& css);
     void clear();
     
+    // Resolve all styles in document tree (cascade + compute)
     void resolveStyles(DocumentNode* document);
 
 private:
-    void applyDefaultStyles(DOMNode* node);
-    void applyCSSRules(DOMNode* node);
-    void applyInlineStyle(ElementNode* element);
-    void inheritStyles(DOMNode* node);
+    void parseStylesheet(const std::string& css, std::vector<CSSRule>& rules);
+    void parseRule(const std::string& selector_str, const std::string& properties_str,
+                  std::vector<CSSRule>& rules);
     
+<<<<<<< Updated upstream
     void parseDeclarations(const std::string& declarations_str,
                           std::unordered_map<std::string, std::string>& out);
     
     bool matchesSelector(ElementNode* element, const std::string& selector);
+=======
+    void cascadeStyles(DOMNode* node, ComputedStyle parent_style);
+    void applyDefaultStyles(ElementNode* element, ComputedStyle& style);
+    void applyMatchingRules(ElementNode* element, ComputedStyle& style);
+    void applyInlineStyle(ElementNode* element, ComputedStyle& style);
+    void computeFinalStyle(ComputedStyle& style, const ComputedStyle& parent);
+    
+    bool selectorMatches(const std::string& selector, ElementNode* element);
+>>>>>>> Stashed changes
     int calculateSpecificity(const std::string& selector);
     
-    void applyDeclaration(const std::string& property, const std::string& value, 
-                         ComputedStyle& style);
+    void parseProperty(const std::string& name, const std::string& value,
+                      ComputedStyle& style);
+    ComputedStyle::Color parseColor(const std::string& color_str);
+    float parseLength(const std::string& length_str);
     
+<<<<<<< Updated upstream
     DisplayType parseDisplay(const std::string& value);
     ComputedStyle::TextAlign parseTextAlign(const std::string& value);
     ComputedStyle::VerticalAlign parseVerticalAlign(const std::string& value);
@@ -45,10 +61,12 @@ private:
     float parseLength(const std::string& value, float base_size);
     
     std::string toLowerCase(const std::string& str);
+=======
+>>>>>>> Stashed changes
     std::string trim(const std::string& str);
+    std::string toLowerCase(const std::string& str);
     
     std::vector<CSSRule> rules_;
-    CSSParser css_parser_;
 };
 
 } // namespace epub
