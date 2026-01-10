@@ -307,12 +307,43 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
+    static int debug_count = 0;
+    bool should_log = (debug_count < 5);
+    
+    if (should_log) {
+        LOG_DEBUG("Processing element:", element->getTagName(), 
+                 "class:", element->getAttribute("class"),
+                 "id:", element->getAttribute("id"),
+                 "role:", element->getAttribute("role"));
+        debug_count++;
+    }
+    
+    int matched = 0;
+    
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
+            matched++;
+            if (should_log && matched <= 3) {
+                LOG_DEBUG("  MATCH:", rule.selector);
+                int prop_count = 0;
+                for (const auto& decl : rule.declarations) {
+                    if (prop_count < 3) {
+                        LOG_DEBUG("    Property:", decl.first, "=", decl.second);
+                        prop_count++;
+                    }
+                }
+            }
             for (const auto& decl : rule.declarations) {
                 applyDeclaration(decl.first, decl.second, element->computed_style);
             }
         }
+    }
+    
+    if (should_log && matched > 0) {
+        LOG_DEBUG("  Applied", matched, "rules to", element->getTagName());
+        LOG_DEBUG("  Final: margin-top=", element->computed_style.margin_top,
+                 "margin-bottom=", element->computed_style.margin_bottom,
+                 "text-indent=", element->computed_style.text_indent);
     }
 }
 
@@ -395,6 +426,10 @@ bool StyleResolver::matchesSelector(ElementNode* element, const std::string& sel
 bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::string& selector) {
     std::string sel = trim(selector);
     
+    // Debug first few matches
+    static int match_count = 0;
+    bool should_debug = (match_count < 10);
+    
     size_t pseudo_pos = sel.find(':');
     std::string base_selector = sel;
     std::vector<std::string> pseudo_classes;
@@ -437,18 +472,35 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         }
     }
     
+    // Process pseudo-classes
     for (const std::string& pseudo : pseudo_classes) {
+        if (should_debug) {
+            LOG_DEBUG("      Checking pseudo:", pseudo, "on", element->getTagName());
+        }
+        
         if (pseudo == ":first-child") {
-            if (!isFirstChild(element)) return false;
+            if (!isFirstChild(element)) {
+                if (should_debug) LOG_DEBUG("        Failed: not first child");
+                return false;
+            }
         }
         else if (pseudo == ":last-child") {
-            if (!isLastChild(element)) return false;
+            if (!isLastChild(element)) {
+                if (should_debug) LOG_DEBUG("        Failed: not last child");
+                return false;
+            }
         }
         else if (pseudo.find(":first-of-type") == 0) {
-            if (!isFirstOfType(element)) return false;
+            if (!isFirstOfType(element)) {
+                if (should_debug) LOG_DEBUG("        Failed: not first of type");
+                return false;
+            }
         }
         else if (pseudo.find(":last-of-type") == 0) {
-            if (!isLastOfType(element)) return false;
+            if (!isLastOfType(element)) {
+                if (should_debug) LOG_DEBUG("        Failed: not last of type");
+                return false;
+            }
         }
         else if (pseudo.find(":not(") == 0) {
             size_t paren_close = pseudo.rfind(')');
@@ -456,8 +508,19 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
                 std::string inner = pseudo.substr(5, paren_close - 5);
                 std::vector<std::string> not_selectors = splitSelectors(inner);
                 
+                if (should_debug) {
+                    LOG_DEBUG("        :not() inner selectors:", inner);
+                }
+                
                 for (const std::string& not_sel : not_selectors) {
-                    if (matchesSimpleSelector(element, trim(not_sel))) {
+                    std::string trimmed_not = trim(not_sel);
+                    if (should_debug) {
+                        LOG_DEBUG("          Testing :not selector:", trimmed_not);
+                    }
+                    if (matchesSimpleSelector(element, trimmed_not)) {
+                        if (should_debug) {
+                            LOG_DEBUG("        Failed: element matches :not() selector");
+                        }
                         return false;
                     }
                 }
@@ -479,7 +542,10 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
                     }
                 }
                 
-                if (!any_match) return false;
+                if (!any_match) {
+                    if (should_debug) LOG_DEBUG("        Failed: no :is() match");
+                    return false;
+                }
             }
         }
     }
@@ -529,12 +595,16 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
     
     if (!tag_name.empty() && tag_name != "*") {
         if (element->getTagName() != toLowerCase(tag_name)) {
+            if (should_debug) {
+                LOG_DEBUG("      Tag mismatch:", element->getTagName(), "!=", toLowerCase(tag_name));
+            }
             return false;
         }
     }
     
     if (!id.empty()) {
         if (element->getAttribute("id") != id) {
+            if (should_debug) LOG_DEBUG("      ID mismatch");
             return false;
         }
     }
@@ -543,18 +613,30 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         std::string element_class = element->getAttribute("class");
         
         size_t class_pos = element_class.find(class_name);
-        if (class_pos == std::string::npos) return false;
+        if (class_pos == std::string::npos) {
+            if (should_debug) LOG_DEBUG("      Class not found:", class_name);
+            return false;
+        }
         
         bool start_ok = (class_pos == 0 || std::isspace(element_class[class_pos - 1]));
         bool end_ok = (class_pos + class_name.length() == element_class.length() ||
                       std::isspace(element_class[class_pos + class_name.length()]));
-        if (!start_ok || !end_ok) return false;
+        if (!start_ok || !end_ok) {
+            if (should_debug) LOG_DEBUG("      Class boundary mismatch");
+            return false;
+        }
     }
     
     for (const std::string& attr : attributes) {
         if (!matchesAttributeSelector(element, attr)) {
+            if (should_debug) LOG_DEBUG("      Attribute mismatch:", attr);
             return false;
         }
+    }
+    
+    if (should_debug && match_count < 10) {
+        LOG_DEBUG("      SUCCESS: matched", selector);
+        match_count++;
     }
     
     return true;
