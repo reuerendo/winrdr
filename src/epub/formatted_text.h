@@ -64,6 +64,14 @@ struct TextElement {
     int list_level;
     float text_indent;  // In em units
     
+    // NEW: Style properties passed explicitly to avoid LayoutEngine hacks
+    float margin_top = 0.0f;    // In pixels
+    float margin_bottom = 0.0f; // In pixels
+    std::string font_family;
+    
+    // NEW: Flags for inline rendering flow
+    bool is_inline_continuation = false; // Draws on the same line as previous element
+    
     TextElement() 
         : type(ElementType::Text)
         , style(TextStyle::Normal)

@@ -39,6 +39,12 @@ private:
     int current_list_level_;
     float current_text_indent_;
     
+    // New context variables for handling block flow and margins
+    float current_margin_top_;
+    float current_margin_bottom_;
+    std::string current_font_family_;
+    bool first_element_in_block_;
+    
     // Track if we're in inline context
     bool in_inline_context_;
 };
