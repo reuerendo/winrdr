@@ -815,19 +815,72 @@ bool StyleResolver::isLastOfType(ElementNode* element) {
 bool StyleResolver::matchesAttributeSelector(ElementNode* element, const std::string& attr_selector) {
     std::string attr = trim(attr_selector);
     
-    if (attr.find('=') == std::string::npos) {
+    // Check for operators: =, ~=, |=, ^=, $=, *=
+    size_t eq_pos = attr.find('=');
+    
+    if (eq_pos == std::string::npos) {
+        // Simple attribute existence check [attr]
         return element->hasAttribute(attr);
     }
     
-    size_t eq_pos = attr.find('=');
-    std::string attr_name = trim(attr.substr(0, eq_pos));
+    // Determine operator type
+    char op = '=';
+    size_t op_start = eq_pos;
+    
+    if (eq_pos > 0) {
+        char prev = attr[eq_pos - 1];
+        if (prev == '~' || prev == '|' || prev == '^' || prev == '$' || prev == '*') {
+            op = prev;
+            op_start = eq_pos - 1;
+        }
+    }
+    
+    std::string attr_name = trim(attr.substr(0, op_start));
     std::string attr_value = trim(attr.substr(eq_pos + 1));
     
+    // Remove quotes
     if (!attr_value.empty() && (attr_value[0] == '"' || attr_value[0] == '\'')) {
         attr_value = attr_value.substr(1, attr_value.length() - 2);
     }
     
-    return element->getAttribute(attr_name) == attr_value;
+    std::string element_value = element->getAttribute(attr_name);
+    
+    switch (op) {
+        case '=':  // Exact match
+            return element_value == attr_value;
+            
+        case '~':  // Word match (space-separated)
+            {
+                size_t pos = 0;
+                while (pos < element_value.length()) {
+                    while (pos < element_value.length() && std::isspace(element_value[pos])) pos++;
+                    size_t start = pos;
+                    while (pos < element_value.length() && !std::isspace(element_value[pos])) pos++;
+                    
+                    if (start < pos) {
+                        std::string word = element_value.substr(start, pos - start);
+                        if (word == attr_value) return true;
+                    }
+                }
+                return false;
+            }
+            
+        case '|':  // Starts with value or value-
+            return element_value == attr_value || 
+                   (element_value.find(attr_value + "-") == 0);
+            
+        case '^':  // Starts with
+            return element_value.find(attr_value) == 0;
+            
+        case '$':  // Ends with
+            if (attr_value.length() > element_value.length()) return false;
+            return element_value.substr(element_value.length() - attr_value.length()) == attr_value;
+            
+        case '*':  // Contains
+            return element_value.find(attr_value) != std::string::npos;
+    }
+    
+    return false;
 }
 
 bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::string& selector) {
@@ -894,32 +947,33 @@ bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::stri
     
     if (rightmost.type == '+') {
         // Adjacent sibling: immediate previous element sibling must match
+        // ВАЖНО: пропускаем текстовые узлы содержащие только whitespace
         if (!element->parent) return false;
         
         ElementNode* prev_sibling = nullptr;
         
         for (auto& child : element->parent->children) {
             if (child.get() == element) {
-                break;
+                break;  // Found current element
             }
             
             if (child->getType() == NodeType::Element) {
                 prev_sibling = static_cast<ElementNode*>(child.get());
             }
-            // Skip whitespace-only text nodes
             else if (child->getType() == NodeType::Text) {
+                // Check if text node has non-whitespace content
                 TextNode* text_node = static_cast<TextNode*>(child.get());
                 const std::string& text = text_node->getText();
                 
                 bool has_content = false;
                 for (char c : text) {
-                    if (!std::isspace(c)) {
+                    if (!std::isspace(static_cast<unsigned char>(c))) {
                         has_content = true;
                         break;
                     }
                 }
                 
-                // Non-whitespace text breaks the adjacency chain
+                // Non-whitespace text breaks adjacency
                 if (has_content) {
                     prev_sibling = nullptr;
                 }
@@ -1194,9 +1248,31 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
         }
     }
 	else if (prop == "text-indent") {
-		float indent_px = parseLengthToPixels(val);
-		style.text_indent = indent_px / BASE_FONT_SIZE;
-	}
+        // Parse value with unit
+        float num = 0.0f;
+        size_t unit_pos = 0;
+        
+        try {
+            num = std::stof(val, &unit_pos);
+        } catch (...) {
+            return;
+        }
+        
+        std::string unit = trim(val.substr(unit_pos));
+        
+        // Store in em units for proper scaling
+        if (unit.empty() || unit == "px") {
+            style.text_indent = num / BASE_FONT_SIZE; // Convert px to em
+        } else if (unit == "em") {
+            style.text_indent = num;  // Already in em
+        } else if (unit == "rem") {
+            style.text_indent = num;  // rem same as em for text-indent
+        } else if (unit == "%") {
+            style.text_indent = num / 100.0f;
+        }
+        
+        LOG_DEBUG("Applied text-indent:", num, unit, "->", style.text_indent, "em");
+    }
     else if (prop == "page-break-before") {
         style.page_break_before = parsePageBreak(val);
     }

@@ -56,13 +56,14 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
         
         int line_breaks = static_cast<int>(std::round(margin_top / PIXELS_PER_LINE));
         
-        // REMOVED: && i < 3 limit
-        // Now we can have many line breaks for large margins like 15rem
+        // REMOVED: && i < 3 limit - now supports large margins like 15rem
         for (int i = 0; i < line_breaks; i++) {
             addLineBreak();
         }
         
-        LOG_DEBUG("margin-top:", margin_top, "px ->", line_breaks, "line breaks");
+        if (line_breaks > 0) {
+            LOG_DEBUG("margin-top:", margin_top, "px ->", line_breaks, "line breaks");
+        }
     }
     
     if (node->getType() == NodeType::Element) {
@@ -85,7 +86,9 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
             addLineBreak();
         }
         
-        LOG_DEBUG("margin-bottom:", margin_bottom, "px ->", line_breaks, "line breaks");
+        if (line_breaks > 0) {
+            LOG_DEBUG("margin-bottom:", margin_bottom, "px ->", line_breaks, "line breaks");
+        }
     }
 }
 
@@ -127,6 +130,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         return;
     }
     
+    // Block vs inline handling
     if (style.display == DisplayType::Block || 
         style.display == DisplayType::ListItem ||
         style.display == DisplayType::Table ||
@@ -139,7 +143,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         TextAlign old_align = current_inline_align_;
         float old_text_indent = current_text_indent_;
         
-        // Set block type based on tag
         if (tag == "p") {
             current_block_type_ = ElementType::Paragraph;
         } else if (tag == "h1") {
@@ -164,36 +167,34 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
             current_block_type_ = ElementType::Paragraph;
         }
         
-        // Apply text alignment from computed style
         current_inline_align_ = computeTextAlign(style);
         
-        // Apply text-indent from computed style (already in em units)
+        // IMPORTANT: Apply text-indent from computed style
         current_text_indent_ = style.text_indent;
         
-        LOG_DEBUG("Block element:", tag, 
-                 "align:", (int)current_inline_align_,
-                 "text-indent:", current_text_indent_, "em");
+        if (current_text_indent_ != 0.0f) {
+            LOG_DEBUG("Block element:", tag, 
+                     "align:", (int)current_inline_align_,
+                     "text-indent:", current_text_indent_, "em");
+        }
         
         int new_list_level = list_level;
         if (tag == "ul" || tag == "ol") {
             new_list_level++;
         }
         
-        // Layout children
         for (auto& child : element->children) {
             layoutNode(child.get(), new_list_level);
         }
         
         flushInlineContent();
         
-        // Add line break after block element if not already present
         if (current_block_type_ != ElementType::Text && !output_.empty()) {
             if (output_.back().type != ElementType::LineBreak) {
                 addLineBreak();
             }
         }
         
-        // Restore previous context
         current_block_type_ = old_block_type;
         current_inline_align_ = old_align;
         current_text_indent_ = old_text_indent;
@@ -206,7 +207,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         TextStyle old_style = current_inline_style_;
         
-        // Build new style by combining current with element's computed style
         TextStyle new_style = current_inline_style_;
         
         if (style.bold) {
@@ -236,12 +236,10 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         current_inline_style_ = new_style;
         
-        // Add quotes for <q> element
         if (tag == "q") {
             current_inline_text_ += L"\"";
         }
         
-        // Layout children with inherited style
         for (auto& child : element->children) {
             layoutNode(child.get(), list_level);
         }
@@ -250,7 +248,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
             current_inline_text_ += L"\"";
         }
         
-        // Restore previous style
         current_inline_style_ = old_style;
         in_inline_context_ = was_inline;
     }
@@ -289,11 +286,12 @@ void LayoutEngine::flushInlineContent() {
     elem.list_level = current_list_level_;
     elem.text_indent = current_text_indent_;
     
-    LOG_DEBUG("Flushing inline content:", 
-             "type:", (int)elem.type,
-             "style:", (int)elem.style,
-             "align:", (int)elem.align,
-             "text-indent:", elem.text_indent);
+    if (current_text_indent_ != 0.0f || current_inline_align_ != TextAlign::Left) {
+        LOG_DEBUG("Flushing inline content:", 
+                 "type:", (int)elem.type,
+                 "align:", (int)elem.align,
+                 "text-indent:", elem.text_indent);
+    }
     
     output_.push_back(elem);
     
