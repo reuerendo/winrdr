@@ -319,6 +319,16 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
         }
     }
     
+    // DEBUG: Log matched rules for first few elements
+    static int debug_count = 0;
+    if (debug_count < 10 && !matching_rules.empty()) {
+        LOG_DEBUG("Element", element->getTagName(), "matched", matching_rules.size(), "rules");
+        for (const auto& pair : matching_rules) {
+            LOG_DEBUG("  Selector:", pair.second->selector, "specificity:", pair.first);
+        }
+        debug_count++;
+    }
+    
     // Sort by specificity (lower first, so higher specificity overwrites)
     std::sort(matching_rules.begin(), matching_rules.end(),
              [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -955,8 +965,19 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     
     // Skip font variant properties we don't support
     if (prop == "font-kerning" || prop == "font-variant-ligatures" ||
-        prop == "font-variant-numeric" || prop == "font-feature-settings") {
+        prop == "font-variant-numeric" || prop == "font-feature-settings" ||
+        prop == "text-rendering") {
         return;
+    }
+    
+    // LOG ALL APPLIED STYLES (temporary debug)
+    static int apply_count = 0;
+    if (apply_count < 50) { // Log first 50 to avoid spam
+        if (prop == "font-weight" || prop == "font-style" || prop == "text-align" ||
+            prop == "text-decoration" || prop == "font-family") {
+            LOG_DEBUG("Applying:", prop, "=", val);
+            apply_count++;
+        }
     }
     
     if (prop == "display") {

@@ -43,7 +43,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
         return;
     }
     
-    // Handle margin-top for block elements
     if (node->getType() == NodeType::Element && 
         (node->computed_style.display == DisplayType::Block ||
          node->computed_style.display == DisplayType::ListItem)) {
@@ -55,10 +54,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
         for (int i = 0; i < line_breaks; i++) {
             addLineBreak();
         }
-        
-        if (line_breaks > 0) {
-            LOG_DEBUG("margin-top:", margin_top, "px ->", line_breaks, "line breaks");
-        }
     }
     
     if (node->getType() == NodeType::Element) {
@@ -67,7 +62,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
         layoutText(static_cast<TextNode*>(node));
     }
     
-    // Handle margin-bottom for block elements
     if (node->getType() == NodeType::Element && 
         (node->computed_style.display == DisplayType::Block ||
          node->computed_style.display == DisplayType::ListItem)) {
@@ -78,10 +72,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
         
         for (int i = 0; i < line_breaks; i++) {
             addLineBreak();
-        }
-        
-        if (line_breaks > 0) {
-            LOG_DEBUG("margin-bottom:", margin_bottom, "px ->", line_breaks, "line breaks");
         }
     }
 }
@@ -124,7 +114,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         return;
     }
     
-    // Block vs inline handling
     if (style.display == DisplayType::Block || 
         style.display == DisplayType::ListItem ||
         style.display == DisplayType::Table ||
@@ -165,7 +154,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         current_inline_align_ = computeTextAlign(style);
         current_text_indent_ = style.text_indent;
         
-        // КРИТИЧНО: применяем стили из computed_style для block элементов
+        // Apply computed styles to block elements
         TextStyle block_style = TextStyle::Normal;
         if (style.bold) block_style = block_style | TextStyle::Bold;
         if (style.italic) block_style = block_style | TextStyle::Italic;
@@ -181,12 +170,6 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         }
         
         current_inline_style_ = block_style;
-        
-        if (current_text_indent_ != 0.0f) {
-            LOG_DEBUG("Block element:", tag, 
-                     "align:", (int)current_inline_align_,
-                     "text-indent:", current_text_indent_, "em");
-        }
         
         int new_list_level = list_level;
         if (tag == "ul" || tag == "ol") {
@@ -245,6 +228,11 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
             new_style = new_style | TextStyle::Superscript;
         }
         
+        // CRITICAL: Flush before changing style
+        if (!current_inline_text_.empty() && new_style != current_inline_style_) {
+            flushInlineContent();
+        }
+        
         current_inline_style_ = new_style;
         
         if (tag == "q") {
@@ -257,6 +245,11 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         
         if (tag == "q") {
             current_inline_text_ += L"\"";
+        }
+        
+        // CRITICAL: Flush before restoring style
+        if (!current_inline_text_.empty() && new_style != old_style) {
+            flushInlineContent();
         }
         
         current_inline_style_ = old_style;
@@ -284,6 +277,8 @@ void LayoutEngine::layoutText(TextNode* text) {
     }
 }
 
+// Replace flushInlineContent() in layout_engine.cpp with this diagnostic version:
+
 void LayoutEngine::flushInlineContent() {
     if (current_inline_text_.empty()) {
         return;
@@ -297,11 +292,47 @@ void LayoutEngine::flushInlineContent() {
     elem.list_level = current_list_level_;
     elem.text_indent = current_text_indent_;
     
-    if (current_text_indent_ != 0.0f || current_inline_align_ != TextAlign::Left) {
-        LOG_DEBUG("Flushing inline content:", 
-                 "type:", (int)elem.type,
-                 "align:", (int)elem.align,
-                 "text-indent:", elem.text_indent);
+    // DIAGNOSTIC: Log first 20 text elements with their styles
+    static int log_count = 0;
+    if (log_count < 20 && elem.type != ElementType::LineBreak) {
+        std::string style_str;
+        if (epub::hasStyle(elem.style, epub::TextStyle::Bold)) style_str += "B";
+        if (epub::hasStyle(elem.style, epub::TextStyle::Italic)) style_str += "I";
+        if (epub::hasStyle(elem.style, epub::TextStyle::Underline)) style_str += "U";
+        if (style_str.empty()) style_str = "Normal";
+        
+        std::string align_str;
+        switch (elem.align) {
+            case TextAlign::Left: align_str = "Left"; break;
+            case TextAlign::Center: align_str = "Center"; break;
+            case TextAlign::Right: align_str = "Right"; break;
+            case TextAlign::Justify: align_str = "Justify"; break;
+        }
+        
+        // Truncate text for logging
+        std::wstring preview = elem.content;
+        if (preview.length() > 30) preview = preview.substr(0, 30) + L"...";
+        
+        // Convert to UTF-8 for logging
+        std::string preview_utf8;
+#ifdef _WIN32
+        int size = WideCharToMultiByte(CP_UTF8, 0, preview.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (size > 0) {
+            preview_utf8.resize(size - 1);
+            WideCharToMultiByte(CP_UTF8, 0, preview.c_str(), -1, &preview_utf8[0], size, nullptr, nullptr);
+        }
+#else
+        for (wchar_t c : preview) {
+            preview_utf8 += static_cast<char>(c);
+        }
+#endif
+        
+        LOG_DEBUG("TextElement:", "type:", (int)elem.type, 
+                 "style:", style_str,
+                 "align:", align_str,
+                 "indent:", elem.text_indent,
+                 "text:", preview_utf8);
+        log_count++;
     }
     
     output_.push_back(elem);
