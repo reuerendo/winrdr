@@ -224,56 +224,59 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
             
             return rect.bottom + LINE_SPACING;
         }
-
-case epub::ElementType::Quote:
-case epub::ElementType::Paragraph:
-case epub::ElementType::Text:
-case epub::ElementType::Link: {
-    // CRITICAL: Reduce width by text-indent
-    int indent_pixels = static_cast<int>(elem.text_indent * font_size_);
-    int effective_width = width - indent_pixels;
-    
-    RECT rect = {0, 0, effective_width, 0};
-    
-    HFONT font = selectFontForStyle(elem.style);
-    
-    if (epub::hasStyle(elem.style, epub::TextStyle::Small)) {
-        int small_size = static_cast<int>(font_size_ * 0.85);
-        const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-        const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
-        const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
         
-        if (is_mono) {
-            HFONT small_font = CreateFontW(
-                small_size, 0, 0, 0, is_bold ? FW_BOLD : FW_NORMAL, 
-                is_italic ? TRUE : FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
-            );
-            HFONT old_font = (HFONT)SelectObject(hdc, small_font);
-            DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                     DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-            SelectObject(hdc, old_font);
-            DeleteObject(small_font);
-        } else {
-            HFONT small_font = createFont(small_size, is_bold, is_italic, false, false);
-            HFONT old_font = (HFONT)SelectObject(hdc, small_font);
-            DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                     DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-            SelectObject(hdc, old_font);
-            DeleteObject(small_font);
-        }
-    } else {
-        HFONT old_font = (HFONT)SelectObject(hdc, font);
-        DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                 DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-        SelectObject(hdc, old_font);
-    }
-    
-    int spacing = (elem.type == epub::ElementType::Paragraph) ? 
-                 PARAGRAPH_SPACING : LINE_SPACING;
-    return rect.bottom + spacing;
-}
+		// Fragment of measureElementHeight() for Paragraph/Text
+		// Replace the existing case for these element types:
+
+		case epub::ElementType::Quote:
+		case epub::ElementType::Paragraph:
+		case epub::ElementType::Text:
+		case epub::ElementType::Link: {
+			// CRITICAL: Reduce width by text-indent
+			int indent_pixels = static_cast<int>(elem.text_indent * font_size_);
+			int effective_width = width - indent_pixels;
+			
+			RECT rect = {0, 0, effective_width, 0};
+			
+			HFONT font = selectFontForStyle(elem.style);
+			
+			if (epub::hasStyle(elem.style, epub::TextStyle::Small)) {
+				int small_size = static_cast<int>(font_size_ * 0.85);
+				const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
+				const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
+				const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
+				
+				if (is_mono) {
+					HFONT small_font = CreateFontW(
+						small_size, 0, 0, 0, is_bold ? FW_BOLD : FW_NORMAL, 
+						is_italic ? TRUE : FALSE, FALSE, FALSE,
+						DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+						DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
+					);
+					HFONT old_font = (HFONT)SelectObject(hdc, small_font);
+					DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
+							 DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+					SelectObject(hdc, old_font);
+					DeleteObject(small_font);
+				} else {
+					HFONT small_font = createFont(small_size, is_bold, is_italic, false, false);
+					HFONT old_font = (HFONT)SelectObject(hdc, small_font);
+					DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
+							 DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+					SelectObject(hdc, old_font);
+					DeleteObject(small_font);
+				}
+			} else {
+				HFONT old_font = (HFONT)SelectObject(hdc, font);
+				DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
+						 DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+				SelectObject(hdc, old_font);
+			}
+			
+			int spacing = (elem.type == epub::ElementType::Paragraph) ? 
+						 PARAGRAPH_SPACING : LINE_SPACING;
+			return rect.bottom + spacing;
+		}
     }
     
     return LINE_SPACING;
@@ -510,80 +513,85 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             SelectObject(hdc, old_font);
             break;
         }
+        
+		// Fragment of renderElement() for Paragraph/Text rendering
+		// Replace the existing case for epub::ElementType::Paragraph:
 
-case epub::ElementType::Link:
-case epub::ElementType::Paragraph:
-case epub::ElementType::Text: {
-    RECT text_rect = rect;
-    text_rect.top = y_pos;
-    
-    // CRITICAL: Apply text-indent
-    int indent_pixels = static_cast<int>(elem.text_indent * font_size_);
-    text_rect.left += indent_pixels;
-    
-    const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-    const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
-    const bool has_underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
-    const bool has_strikethrough = epub::hasStyle(elem.style, epub::TextStyle::Strikethrough);
-    const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
-    const bool is_small = epub::hasStyle(elem.style, epub::TextStyle::Small);
-    
-    int text_size = is_small ? static_cast<int>(font_size_ * 0.85) : font_size_;
-    
-    HFONT font;
-    if (is_mono) {
-        font = CreateFontW(
-            text_size, 0, 0, 0,
-            is_bold ? FW_BOLD : FW_NORMAL,
-            is_italic ? TRUE : FALSE,
-            has_underline ? TRUE : FALSE,
-            has_strikethrough ? TRUE : FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
-        );
-    } else {
-        font = createFont(text_size, is_bold, is_italic, has_underline, has_strikethrough);
+		case epub::ElementType::Link:
+		case epub::ElementType::Paragraph:
+		case epub::ElementType::Text: {
+			RECT text_rect = rect;
+			text_rect.top = y_pos;
+			
+			// CRITICAL: Apply text-indent
+			int indent_pixels = static_cast<int>(elem.text_indent * font_size_);
+			text_rect.left += indent_pixels;
+			
+			const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
+			const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
+			const bool has_underline = epub::hasStyle(elem.style, epub::TextStyle::Underline);
+			const bool has_strikethrough = epub::hasStyle(elem.style, epub::TextStyle::Strikethrough);
+			const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
+			const bool is_small = epub::hasStyle(elem.style, epub::TextStyle::Small);
+			
+			int text_size = is_small ? static_cast<int>(font_size_ * 0.85) : font_size_;
+			
+			HFONT font;
+			if (is_mono) {
+				font = CreateFontW(
+					text_size, 0, 0, 0,
+					is_bold ? FW_BOLD : FW_NORMAL,
+					is_italic ? TRUE : FALSE,
+					has_underline ? TRUE : FALSE,
+					has_strikethrough ? TRUE : FALSE,
+					DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+					DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
+				);
+			} else {
+				font = createFont(text_size, is_bold, is_italic, has_underline, has_strikethrough);
+			}
+			
+			HFONT old_font = (HFONT)SelectObject(hdc, font);
+			
+			if (elem.type == epub::ElementType::Link) {
+				SetTextColor(hdc, RGB(0, 0, 255));
+			} else {
+				SetTextColor(hdc, RGB(0, 0, 0));
+			}
+			
+			UINT format = DT_WORDBREAK | DT_NOPREFIX;
+			
+			// Apply text alignment
+			switch (elem.align) {
+				case epub::TextAlign::Center:
+					format |= DT_CENTER;
+					text_rect.left = rect.left; // Reset indent for center
+					break;
+				case epub::TextAlign::Right:
+					format |= DT_RIGHT;
+					text_rect.left = rect.left; // Reset indent for right
+					break;
+				case epub::TextAlign::Justify:
+					// DrawTextW doesn't support justify, use DT_LEFT
+					// For better results, could implement manual justification
+					format |= DT_LEFT;
+					break;
+				default:
+					format |= DT_LEFT;
+					break;
+			}
+			
+			int height = DrawTextW(hdc, elem.content.c_str(), -1, &text_rect, format);
+			
+			int spacing = (elem.type == epub::ElementType::Paragraph) ? 
+						 PARAGRAPH_SPACING : LINE_SPACING;
+			y_pos += height + spacing;
+			
+			SelectObject(hdc, old_font);
+			DeleteObject(font);
+			break;
+		}
     }
-    
-    HFONT old_font = (HFONT)SelectObject(hdc, font);
-    
-    if (elem.type == epub::ElementType::Link) {
-        SetTextColor(hdc, RGB(0, 0, 255));
-    } else {
-        SetTextColor(hdc, RGB(0, 0, 0));
-    }
-    
-    UINT format = DT_WORDBREAK | DT_NOPREFIX;
-    
-    // Apply text alignment
-    switch (elem.align) {
-        case epub::TextAlign::Center:
-            format |= DT_CENTER;
-            text_rect.left = rect.left; // Reset indent for center
-            break;
-        case epub::TextAlign::Right:
-            format |= DT_RIGHT;
-            text_rect.left = rect.left; // Reset indent for right
-            break;
-        case epub::TextAlign::Justify:
-            // DrawTextW doesn't support justify, use DT_LEFT
-            // For better results, could implement manual justification
-            format |= DT_LEFT;
-            break;
-        default:
-            format |= DT_LEFT;
-            break;
-    }
-    
-    int height = DrawTextW(hdc, elem.content.c_str(), -1, &text_rect, format);
-    
-    int spacing = (elem.type == epub::ElementType::Paragraph) ? 
-                 PARAGRAPH_SPACING : LINE_SPACING;
-    y_pos += height + spacing;
-    
-    SelectObject(hdc, old_font);
-    DeleteObject(font);
-    break;
 }
 
 void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos) {
