@@ -49,14 +49,9 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
          node->computed_style.display == DisplayType::ListItem)) {
         
         float margin_top = node->computed_style.margin_top;
-        
-        // Convert margin to line breaks more accurately
-        // BASE_FONT_SIZE (16px) * line_height (1.2) = 19.2px per line
         const float PIXELS_PER_LINE = 16.0f * 1.2f;
-        
         int line_breaks = static_cast<int>(std::round(margin_top / PIXELS_PER_LINE));
         
-        // REMOVED: && i < 3 limit - now supports large margins like 15rem
         for (int i = 0; i < line_breaks; i++) {
             addLineBreak();
         }
@@ -78,7 +73,6 @@ void LayoutEngine::layoutNode(DOMNode* node, int list_level) {
          node->computed_style.display == DisplayType::ListItem)) {
         
         float margin_bottom = node->computed_style.margin_bottom;
-        
         const float PIXELS_PER_LINE = 16.0f * 1.2f;
         int line_breaks = static_cast<int>(std::round(margin_bottom / PIXELS_PER_LINE));
         
@@ -142,6 +136,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         ElementType old_block_type = current_block_type_;
         TextAlign old_align = current_inline_align_;
         float old_text_indent = current_text_indent_;
+        TextStyle old_style = current_inline_style_;
         
         if (tag == "p") {
             current_block_type_ = ElementType::Paragraph;
@@ -168,9 +163,24 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         }
         
         current_inline_align_ = computeTextAlign(style);
-        
-        // IMPORTANT: Apply text-indent from computed style
         current_text_indent_ = style.text_indent;
+        
+        // КРИТИЧНО: применяем стили из computed_style для block элементов
+        TextStyle block_style = TextStyle::Normal;
+        if (style.bold) block_style = block_style | TextStyle::Bold;
+        if (style.italic) block_style = block_style | TextStyle::Italic;
+        if (style.underline) block_style = block_style | TextStyle::Underline;
+        if (style.strikethrough) block_style = block_style | TextStyle::Strikethrough;
+        if (style.monospace) block_style = block_style | TextStyle::Monospace;
+        if (style.font_size_multiplier < 0.9f) block_style = block_style | TextStyle::Small;
+        if (style.vertical_align == ComputedStyle::VerticalAlign::Sub) {
+            block_style = block_style | TextStyle::Subscript;
+        }
+        if (style.vertical_align == ComputedStyle::VerticalAlign::Super) {
+            block_style = block_style | TextStyle::Superscript;
+        }
+        
+        current_inline_style_ = block_style;
         
         if (current_text_indent_ != 0.0f) {
             LOG_DEBUG("Block element:", tag, 
@@ -198,6 +208,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         current_block_type_ = old_block_type;
         current_inline_align_ = old_align;
         current_text_indent_ = old_text_indent;
+        current_inline_style_ = old_style;
     }
     else if (style.display == DisplayType::Inline || 
              style.display == DisplayType::InlineBlock) {
