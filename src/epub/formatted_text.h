@@ -62,12 +62,14 @@ struct TextElement {
     std::string image_id;
     std::string link_href;
     int list_level;
+    float text_indent;  // In em units
     
     TextElement() 
         : type(ElementType::Text)
         , style(TextStyle::Normal)
         , align(TextAlign::Left)
-        , list_level(0) 
+        , list_level(0)
+        , text_indent(0.0f)
     {}
 };
 
