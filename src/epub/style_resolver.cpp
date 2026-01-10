@@ -519,10 +519,10 @@ bool StyleResolver::matchesSelector(ElementNode* element, const std::string& sel
 bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::string& selector) {
     std::string sel = trim(selector);
     
-    // Debug first few matches
-    static int match_count = 0;
-    bool should_debug = (match_count < 10);
+    if (sel.empty()) return false;
+    if (sel == "*") return true;
     
+    // Separate base selector from pseudo-classes
     size_t pseudo_pos = sel.find(':');
     std::string base_selector = sel;
     std::vector<std::string> pseudo_classes;
@@ -531,31 +531,36 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         base_selector = sel.substr(0, pseudo_pos);
         std::string pseudo_part = sel.substr(pseudo_pos);
         
+        // Parse pseudo-classes carefully
         size_t pos = 0;
         while (pos < pseudo_part.length()) {
             if (pseudo_part[pos] == ':') {
                 size_t next = pseudo_part.find(':', pos + 1);
-                if (next == std::string::npos) next = pseudo_part.length();
                 
-                if (pos + 1 < pseudo_part.length() && 
-                    (pseudo_part.substr(pos).find("not(") == 1 ||
-                     pseudo_part.substr(pos).find("is(") == 1 ||
-                     pseudo_part.substr(pos).find("where(") == 1)) {
+                // Check for functional pseudo-classes like :not(), :is(), :where()
+                if (pos + 1 < pseudo_part.length()) {
+                    std::string func_name = "";
+                    size_t paren = pseudo_part.find('(', pos + 1);
                     
-                    int paren_depth = 0;
-                    size_t i = pos;
-                    while (i < pseudo_part.length()) {
-                        if (pseudo_part[i] == '(') paren_depth++;
-                        if (pseudo_part[i] == ')') {
-                            paren_depth--;
-                            if (paren_depth == 0) {
-                                next = i + 1;
-                                break;
-                            }
+                    if (paren != std::string::npos && (next == std::string::npos || paren < next)) {
+                        func_name = pseudo_part.substr(pos + 1, paren - pos - 1);
+                        
+                        // Find matching closing parenthesis
+                        int paren_depth = 1;
+                        size_t i = paren + 1;
+                        while (i < pseudo_part.length() && paren_depth > 0) {
+                            if (pseudo_part[i] == '(') paren_depth++;
+                            else if (pseudo_part[i] == ')') paren_depth--;
+                            i++;
                         }
-                        i++;
+                        
+                        if (paren_depth == 0) {
+                            next = i;
+                        }
                     }
                 }
+                
+                if (next == std::string::npos) next = pseudo_part.length();
                 
                 pseudo_classes.push_back(pseudo_part.substr(pos, next - pos));
                 pos = next;
@@ -565,35 +570,20 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         }
     }
     
-    // Process pseudo-classes
+    // Process pseudo-classes FIRST (before checking tag/class/id)
+    // This allows :not() to properly filter
     for (const std::string& pseudo : pseudo_classes) {
-        if (should_debug) {
-            LOG_DEBUG("      Checking pseudo:", pseudo, "on", element->getTagName());
-        }
-        
         if (pseudo == ":first-child") {
-            if (!isFirstChild(element)) {
-                if (should_debug) LOG_DEBUG("        Failed: not first child");
-                return false;
-            }
+            if (!isFirstChild(element)) return false;
         }
         else if (pseudo == ":last-child") {
-            if (!isLastChild(element)) {
-                if (should_debug) LOG_DEBUG("        Failed: not last child");
-                return false;
-            }
+            if (!isLastChild(element)) return false;
         }
         else if (pseudo.find(":first-of-type") == 0) {
-            if (!isFirstOfType(element)) {
-                if (should_debug) LOG_DEBUG("        Failed: not first of type");
-                return false;
-            }
+            if (!isFirstOfType(element)) return false;
         }
         else if (pseudo.find(":last-of-type") == 0) {
-            if (!isLastOfType(element)) {
-                if (should_debug) LOG_DEBUG("        Failed: not last of type");
-                return false;
-            }
+            if (!isLastOfType(element)) return false;
         }
         else if (pseudo.find(":not(") == 0) {
             size_t paren_close = pseudo.rfind(')');
@@ -601,20 +591,11 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
                 std::string inner = pseudo.substr(5, paren_close - 5);
                 std::vector<std::string> not_selectors = splitSelectors(inner);
                 
-                if (should_debug) {
-                    LOG_DEBUG("        :not() inner selectors:", inner);
-                }
-                
+                // Element must NOT match ANY of the inner selectors
                 for (const std::string& not_sel : not_selectors) {
                     std::string trimmed_not = trim(not_sel);
-                    if (should_debug) {
-                        LOG_DEBUG("          Testing :not selector:", trimmed_not);
-                    }
                     if (matchesSimpleSelector(element, trimmed_not)) {
-                        if (should_debug) {
-                            LOG_DEBUG("        Failed: element matches :not() selector");
-                        }
-                        return false;
+                        return false;  // Element matches :not() argument, so fail
                     }
                 }
             }
@@ -635,16 +616,15 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
                     }
                 }
                 
-                if (!any_match) {
-                    if (should_debug) LOG_DEBUG("        Failed: no :is() match");
-                    return false;
-                }
+                if (!any_match) return false;
             }
         }
     }
     
+    // If base_selector is empty, we only had pseudo-classes
     if (base_selector.empty()) base_selector = "*";
     
+    // Parse attribute selectors
     size_t bracket_pos = base_selector.find('[');
     std::string tag_part = base_selector;
     std::vector<std::string> attributes;
@@ -662,6 +642,7 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         bracket_pos = base_selector.find('[');
     }
     
+    // Parse tag, classes, and id from tag_part
     std::string tag_name;
     std::vector<std::string> classes;
     std::string id;
@@ -686,53 +667,93 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         }
     }
     
+    // Match tag name
     if (!tag_name.empty() && tag_name != "*") {
         if (element->getTagName() != toLowerCase(tag_name)) {
-            if (should_debug) {
-                LOG_DEBUG("      Tag mismatch:", element->getTagName(), "!=", toLowerCase(tag_name));
-            }
             return false;
         }
     }
     
+    // Match ID
     if (!id.empty()) {
         if (element->getAttribute("id") != id) {
-            if (should_debug) LOG_DEBUG("      ID mismatch");
             return false;
         }
     }
     
+    // Match classes (each class must be present)
     for (const std::string& class_name : classes) {
         std::string element_class = element->getAttribute("class");
         
-        size_t class_pos = element_class.find(class_name);
-        if (class_pos == std::string::npos) {
-            if (should_debug) LOG_DEBUG("      Class not found:", class_name);
-            return false;
+        // Check if class_name is a word in element_class
+        bool found = false;
+        size_t search_pos = 0;
+        while (search_pos < element_class.length()) {
+            size_t class_pos = element_class.find(class_name, search_pos);
+            if (class_pos == std::string::npos) break;
+            
+            // Check word boundaries
+            bool start_ok = (class_pos == 0 || std::isspace(element_class[class_pos - 1]));
+            bool end_ok = (class_pos + class_name.length() == element_class.length() ||
+                          std::isspace(element_class[class_pos + class_name.length()]));
+            
+            if (start_ok && end_ok) {
+                found = true;
+                break;
+            }
+            
+            search_pos = class_pos + 1;
         }
         
-        bool start_ok = (class_pos == 0 || std::isspace(element_class[class_pos - 1]));
-        bool end_ok = (class_pos + class_name.length() == element_class.length() ||
-                      std::isspace(element_class[class_pos + class_name.length()]));
-        if (!start_ok || !end_ok) {
-            if (should_debug) LOG_DEBUG("      Class boundary mismatch");
-            return false;
-        }
+        if (!found) return false;
     }
     
+    // Match attributes
     for (const std::string& attr : attributes) {
         if (!matchesAttributeSelector(element, attr)) {
-            if (should_debug) LOG_DEBUG("      Attribute mismatch:", attr);
             return false;
         }
-    }
-    
-    if (should_debug && match_count < 10) {
-        LOG_DEBUG("      SUCCESS: matched", selector);
-        match_count++;
     }
     
     return true;
+}
+
+bool StyleResolver::isAdjacentSibling(ElementNode* element, ElementNode* sibling) {
+    if (!element->parent) return false;
+    
+    bool found_sibling = false;
+    ElementNode* last_element = nullptr;
+    
+    for (auto& child : element->parent->children) {
+        if (child.get() == element) {
+            return last_element == sibling;
+        }
+        
+        if (child->getType() == NodeType::Element) {
+            last_element = static_cast<ElementNode*>(child.get());
+        }
+        // Text nodes are skipped unless they contain non-whitespace
+        else if (child->getType() == NodeType::Text) {
+            TextNode* text_node = static_cast<TextNode*>(child.get());
+            const std::string& text = text_node->getText();
+            
+            // Check if text contains any non-whitespace
+            bool has_content = false;
+            for (char c : text) {
+                if (!std::isspace(c)) {
+                    has_content = true;
+                    break;
+                }
+            }
+            
+            // If text has content, it breaks the adjacency
+            if (has_content) {
+                last_element = nullptr;
+            }
+        }
+    }
+    
+    return false;
 }
 
 bool StyleResolver::isFirstChild(ElementNode* element) {
@@ -872,14 +893,36 @@ bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::stri
     }
     
     if (rightmost.type == '+') {
-        // Adjacent sibling: immediate previous sibling must match
+        // Adjacent sibling: immediate previous element sibling must match
         if (!element->parent) return false;
         
         ElementNode* prev_sibling = nullptr;
+        
         for (auto& child : element->parent->children) {
-            if (child.get() == element) break;
+            if (child.get() == element) {
+                break;
+            }
+            
             if (child->getType() == NodeType::Element) {
                 prev_sibling = static_cast<ElementNode*>(child.get());
+            }
+            // Skip whitespace-only text nodes
+            else if (child->getType() == NodeType::Text) {
+                TextNode* text_node = static_cast<TextNode*>(child.get());
+                const std::string& text = text_node->getText();
+                
+                bool has_content = false;
+                for (char c : text) {
+                    if (!std::isspace(c)) {
+                        has_content = true;
+                        break;
+                    }
+                }
+                
+                // Non-whitespace text breaks the adjacency chain
+                if (has_content) {
+                    prev_sibling = nullptr;
+                }
             }
         }
         

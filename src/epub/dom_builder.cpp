@@ -14,6 +14,16 @@ std::unique_ptr<DocumentNode> DOMBuilder::parse(const std::string& html) {
     state.skip_content = false;
     
     size_t pos = 0;
+    
+    // Skip XML declaration if present
+    if (html.find("<?xml") == 0) {
+        size_t xml_end = html.find("?>");
+        if (xml_end != std::string::npos) {
+            pos = xml_end + 2;
+            LOG_DEBUG("Skipped XML declaration");
+        }
+    }
+    
     parseContent(html, pos, state);
     
     return std::move(state.document);
@@ -40,6 +50,15 @@ void DOMBuilder::parseContent(const std::string& html, size_t& pos, ParserState&
 }
 
 void DOMBuilder::handleTag(const std::string& html, size_t& pos, ParserState& state) {
+    // Handle XML processing instructions (skip them)
+    if (pos + 1 < html.length() && html[pos] == '<' && html[pos + 1] == '?') {
+        size_t end = html.find("?>", pos + 2);
+        if (end != std::string::npos) {
+            pos = end + 2;
+            return;
+        }
+    }
+    
     // Handle comments
     if (pos + 3 < html.length() && html.substr(pos, 4) == "<!--") {
         size_t end = html.find("-->", pos + 4);
@@ -286,18 +305,22 @@ std::string DOMBuilder::decodeHTMLEntities(const std::string& text) {
                     std::string num_str = text.substr(i + 2, end - i - 2);
                     int code = 0;
                     
-                    if (!num_str.empty() && (num_str[0] == 'x' || num_str[0] == 'X')) {
-                        // Hexadecimal
-                        code = std::stoi(num_str.substr(1), nullptr, 16);
-                    } else {
-                        // Decimal
-                        code = std::stoi(num_str);
-                    }
-                    
-                    if (code > 0 && code < 128) {
-                        result += static_cast<char>(code);
-                        i = end;
-                        decoded = true;
+                    try {
+                        if (!num_str.empty() && (num_str[0] == 'x' || num_str[0] == 'X')) {
+                            // Hexadecimal
+                            code = std::stoi(num_str.substr(1), nullptr, 16);
+                        } else {
+                            // Decimal
+                            code = std::stoi(num_str);
+                        }
+                        
+                        if (code > 0 && code < 128) {
+                            result += static_cast<char>(code);
+                            i = end;
+                            decoded = true;
+                        }
+                    } catch (...) {
+                        // Invalid numeric entity
                     }
                 }
             }
