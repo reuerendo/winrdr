@@ -7,6 +7,9 @@
 
 namespace epub {
 
+// Base font size for rem/em calculations (16px standard)
+static constexpr float BASE_FONT_SIZE = 16.0f;
+
 StyleResolver::StyleResolver() {}
 
 void StyleResolver::addStylesheet(const std::string& css) {
@@ -1299,8 +1302,6 @@ float StyleResolver::parseLength(const std::string& value, float base_size) {
     
     return num;
 }
-
-static constexpr float BASE_FONT_SIZE = 16.0f;
 
 float StyleResolver::parseLengthToPixels(const std::string& value) {
     if (value.empty()) return 0.0f;
