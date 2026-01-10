@@ -307,43 +307,24 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
-    static int debug_count = 0;
-    bool should_log = (debug_count < 5);
-    
-    if (should_log) {
-        LOG_DEBUG("Processing element:", element->getTagName(), 
-                 "class:", element->getAttribute("class"),
-                 "id:", element->getAttribute("id"),
-                 "role:", element->getAttribute("role"));
-        debug_count++;
-    }
-    
-    int matched = 0;
+    // Collect all matching rules with their specificity
+    std::vector<std::pair<int, const CSSRule*>> matching_rules;
     
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
-            matched++;
-            if (should_log && matched <= 3) {
-                LOG_DEBUG("  MATCH:", rule.selector);
-                int prop_count = 0;
-                for (const auto& decl : rule.declarations) {
-                    if (prop_count < 3) {
-                        LOG_DEBUG("    Property:", decl.first, "=", decl.second);
-                        prop_count++;
-                    }
-                }
-            }
-            for (const auto& decl : rule.declarations) {
-                applyDeclaration(decl.first, decl.second, element->computed_style);
-            }
+            matching_rules.push_back({rule.specificity, &rule});
         }
     }
     
-    if (should_log && matched > 0) {
-        LOG_DEBUG("  Applied", matched, "rules to", element->getTagName());
-        LOG_DEBUG("  Final: margin-top=", element->computed_style.margin_top,
-                 "margin-bottom=", element->computed_style.margin_bottom,
-                 "text-indent=", element->computed_style.text_indent);
+    // Sort by specificity (lower first, so higher specificity overwrites)
+    std::sort(matching_rules.begin(), matching_rules.end(),
+             [](const auto& a, const auto& b) { return a.first < b.first; });
+    
+    // Apply in order of specificity
+    for (const auto& pair : matching_rules) {
+        for (const auto& decl : pair.second->declarations) {
+            applyDeclaration(decl.first, decl.second, element->computed_style);
+        }
     }
 }
 
@@ -365,7 +346,7 @@ void StyleResolver::inheritStyles(DOMNode* node) {
     ComputedStyle& style = node->computed_style;
     ComputedStyle& parent_style = node->parent->computed_style;
     
-    // Inherit text color
+    // Inherit text color if not explicitly set
     if (style.text_color.r == 0 && style.text_color.g == 0 && style.text_color.b == 0) {
         if (parent_style.text_color.r != 0 || parent_style.text_color.g != 0 || 
             parent_style.text_color.b != 0) {
@@ -378,32 +359,141 @@ void StyleResolver::inheritStyles(DOMNode* node) {
         style.font_family = parent_style.font_family;
     }
     
-    // Inherit text-indent for specific cases
+    // Inherit line height
+    if (style.line_height == 1.2f && parent_style.line_height != 1.2f) {
+        style.line_height = parent_style.line_height;
+    }
+    
+    // Inherit font size multiplier (relative to parent)
+    if (style.font_size_multiplier == 1.0f && parent_style.font_size_multiplier != 1.0f) {
+        // Child inherits parent's computed font size
+        style.font_size_multiplier = parent_style.font_size_multiplier;
+    }
+    
+    // Inherit text transform
+    if (style.text_transform == ComputedStyle::TextTransform::None && 
+        parent_style.text_transform != ComputedStyle::TextTransform::None) {
+        style.text_transform = parent_style.text_transform;
+    }
+    
+    // Inherit letter spacing
+    if (style.letter_spacing == 0.0f && parent_style.letter_spacing != 0.0f) {
+        style.letter_spacing = parent_style.letter_spacing;
+    }
+    
+    // Special handling for text-indent inheritance in paragraphs
     if (node->getType() == NodeType::Element) {
         ElementNode* elem = static_cast<ElementNode*>(node);
         const std::string& tag = elem->getTagName();
         
-        // Inherit text-indent for paragraphs following paragraphs
-        if (tag == "p" && style.text_indent == 0.0f && parent_style.text_indent != 0.0f) {
-            // Check if this is a subsequent paragraph
-            bool is_subsequent = false;
-            if (node->parent) {
-                for (size_t i = 0; i < node->parent->children.size(); i++) {
-                    if (node->parent->children[i].get() == node && i > 0) {
-                        for (int j = i - 1; j >= 0; j--) {
-                            if (node->parent->children[j]->getType() == NodeType::Element) {
-                                ElementNode* prev = static_cast<ElementNode*>(node->parent->children[j].get());
-                                if (prev->getTagName() == "p") {
-                                    is_subsequent = true;
-                                }
+        // Handle p + p text-indent inheritance pattern
+        if (tag == "p") {
+            // Check if this paragraph should inherit text-indent
+            // This happens when:
+            // 1. The paragraph itself has no explicit text-indent
+            // 2. There's a previous paragraph sibling
+            // 3. The parent has text-indent rules for subsequent paragraphs
+            
+            if (style.text_indent == 0.0f && node->parent) {
+                bool is_subsequent_paragraph = false;
+                ElementNode* prev_paragraph = nullptr;
+                
+                // Find if there's a previous paragraph sibling
+                for (auto& child : node->parent->children) {
+                    if (child.get() == node) {
+                        // We've reached current node
+                        if (prev_paragraph) {
+                            is_subsequent_paragraph = true;
+                        }
+                        break;
+                    }
+                    
+                    if (child->getType() == NodeType::Element) {
+                        ElementNode* sibling = static_cast<ElementNode*>(child.get());
+                        if (sibling->getTagName() == "p") {
+                            prev_paragraph = sibling;
+                        } else {
+                            // Non-paragraph element breaks the sequence
+                            prev_paragraph = nullptr;
+                        }
+                    } else if (child->getType() == NodeType::Text) {
+                        // Check if it's just whitespace
+                        TextNode* text_node = static_cast<TextNode*>(child.get());
+                        const std::string& text = text_node->getText();
+                        bool only_whitespace = true;
+                        for (char c : text) {
+                            if (!std::isspace(c)) {
+                                only_whitespace = false;
                                 break;
                             }
                         }
+                        if (!only_whitespace) {
+                            // Non-whitespace text breaks the sequence
+                            prev_paragraph = nullptr;
+                        }
                     }
-                    if (node->parent->children[i].get() == node) break;
+                }
+                
+                // If this is a subsequent paragraph and the previous paragraph has text-indent,
+                // inherit it (this handles the p + p { text-indent: X } pattern)
+                if (is_subsequent_paragraph && prev_paragraph && 
+                    prev_paragraph->computed_style.text_indent != 0.0f) {
+                    style.text_indent = prev_paragraph->computed_style.text_indent;
                 }
             }
         }
+        
+        // Handle list item indentation inheritance
+        if (tag == "li") {
+            // List items inherit padding from their list parent
+            if (node->parent && node->parent->getType() == NodeType::Element) {
+                ElementNode* parent_elem = static_cast<ElementNode*>(node->parent);
+                const std::string& parent_tag = parent_elem->getTagName();
+                
+                if (parent_tag == "ul" || parent_tag == "ol") {
+                    // Inherit list style type
+                    if (style.list_style == ComputedStyle::ListStyleType::Disc && 
+                        parent_style.list_style != ComputedStyle::ListStyleType::Disc) {
+                        style.list_style = parent_style.list_style;
+                    }
+                }
+            }
+        }
+        
+        // Handle blockquote styling inheritance
+        if (tag == "blockquote") {
+            // Blockquotes can have special text-indent rules
+            // Make sure child paragraphs don't double-indent
+            if (style.text_indent == 0.0f && parent_style.text_indent != 0.0f) {
+                // Don't inherit text-indent inside blockquotes unless explicitly set
+                // This prevents double indentation
+            }
+        }
+    }
+    
+    // Inherit white-space handling
+    if (style.white_space == ComputedStyle::WhiteSpace::Normal && 
+        parent_style.white_space != ComputedStyle::WhiteSpace::Normal) {
+        style.white_space = parent_style.white_space;
+    }
+    
+    // Inherit text alignment (for inline elements)
+    if (node->getType() == NodeType::Element) {
+        ElementNode* elem = static_cast<ElementNode*>(node);
+        if (style.display == DisplayType::Inline || 
+            style.display == DisplayType::InlineBlock) {
+            // Inline elements inherit text-align from parent
+            if (style.text_align == ComputedStyle::TextAlign::Left && 
+                parent_style.text_align != ComputedStyle::TextAlign::Left) {
+                style.text_align = parent_style.text_align;
+            }
+        }
+    }
+    
+    // Inherit hyphens setting
+    if (style.hyphens == ComputedStyle::Hyphens::Manual && 
+        parent_style.hyphens != ComputedStyle::Hyphens::Manual) {
+        style.hyphens = parent_style.hyphens;
     }
 }
 
@@ -717,102 +807,89 @@ bool StyleResolver::matchesAttributeSelector(ElementNode* element, const std::st
 }
 
 bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::string& selector) {
-    // Find rightmost combinator
-    size_t last_gt = selector.rfind('>');
-    size_t last_plus = selector.rfind('+');
-    size_t last_tilde = selector.rfind('~');
-    size_t last_space = std::string::npos;
+    struct Combinator {
+        size_t pos;
+        char type;
+    };
     
-    // Find last meaningful space (not inside brackets/parens or adjacent to combinators)
-    for (int i = static_cast<int>(selector.length()) - 1; i >= 0; i--) {
-        if (selector[i] == ' ') {
-            bool after_combinator = (i > 0 && (selector[i-1] == '>' || selector[i-1] == '+' || selector[i-1] == '~'));
-            bool before_combinator = (i < static_cast<int>(selector.length()) - 1 && 
-                                     (selector[i+1] == '>' || selector[i+1] == '+' || selector[i+1] == '~'));
-            
-            if (!after_combinator && !before_combinator) {
-                if ((last_gt == std::string::npos || i < static_cast<int>(last_gt)) &&
-                    (last_plus == std::string::npos || i < static_cast<int>(last_plus)) &&
-                    (last_tilde == std::string::npos || i < static_cast<int>(last_tilde))) {
-                    last_space = i;
-                    break;
+    std::vector<Combinator> combinators;
+    
+    // Find all combinators, respecting nesting
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    
+    for (size_t i = 0; i < selector.length(); i++) {
+        if (selector[i] == '(') paren_depth++;
+        else if (selector[i] == ')') paren_depth--;
+        else if (selector[i] == '[') bracket_depth++;
+        else if (selector[i] == ']') bracket_depth--;
+        
+        if (paren_depth == 0 && bracket_depth == 0) {
+            if (selector[i] == '>') {
+                combinators.push_back({i, '>'});
+            } else if (selector[i] == '+') {
+                combinators.push_back({i, '+'});
+            } else if (selector[i] == '~') {
+                combinators.push_back({i, '~'});
+            } else if (selector[i] == ' ') {
+                // Only count meaningful spaces (not adjacent to other combinators)
+                if (i > 0 && selector[i-1] != '>' && selector[i-1] != '+' && 
+                    selector[i-1] != '~' && selector[i-1] != ' ') {
+                    if (i + 1 < selector.length() && selector[i+1] != '>' && 
+                        selector[i+1] != '+' && selector[i+1] != '~' && selector[i+1] != ' ') {
+                        combinators.push_back({i, ' '});
+                    }
                 }
             }
         }
     }
     
-    size_t rightmost = std::string::npos;
-    char combinator = ' ';
-    
-    if (last_gt != std::string::npos && 
-        (rightmost == std::string::npos || last_gt > rightmost)) {
-        rightmost = last_gt;
-        combinator = '>';
-    }
-    if (last_plus != std::string::npos && 
-        (rightmost == std::string::npos || last_plus > rightmost)) {
-        rightmost = last_plus;
-        combinator = '+';
-    }
-    if (last_tilde != std::string::npos && 
-        (rightmost == std::string::npos || last_tilde > rightmost)) {
-        rightmost = last_tilde;
-        combinator = '~';
-    }
-    if (last_space != std::string::npos && 
-        (rightmost == std::string::npos || last_space > rightmost)) {
-        rightmost = last_space;
-        combinator = ' ';
+    if (combinators.empty()) {
+        return matchesSimpleSelector(element, selector);
     }
     
-    // Handle > combinator (direct child)
-    if (combinator == '>') {
-        std::string right = trim(selector.substr(rightmost + 1));
-        std::string left = trim(selector.substr(0, rightmost));
-        
-        if (!matchesSimpleSelector(element, right)) return false;
-        if (!element->parent || element->parent->getType() != NodeType::Element) return false;
-        
+    // Use rightmost combinator
+    Combinator rightmost = combinators.back();
+    
+    std::string right = trim(selector.substr(rightmost.pos + 1));
+    std::string left = trim(selector.substr(0, rightmost.pos));
+    
+    // Element must match the rightmost selector
+    if (!matchesSimpleSelector(element, right)) {
+        return false;
+    }
+    
+    // Handle each combinator type
+    if (rightmost.type == '>') {
+        // Direct child: parent must match left selector
+        if (!element->parent || element->parent->getType() != NodeType::Element) {
+            return false;
+        }
         return matchesSelector(static_cast<ElementNode*>(element->parent), left);
     }
     
-    // Handle + combinator (adjacent sibling)
-    if (combinator == '+') {
-        std::string right = trim(selector.substr(rightmost + 1));
-        std::string left = trim(selector.substr(0, rightmost));
-        
-        if (!matchesSimpleSelector(element, right)) return false;
-        
+    if (rightmost.type == '+') {
+        // Adjacent sibling: immediate previous sibling must match
         if (!element->parent) return false;
         
         ElementNode* prev_sibling = nullptr;
-        
         for (auto& child : element->parent->children) {
-            if (child.get() == element) {
-                break;
-            }
+            if (child.get() == element) break;
             if (child->getType() == NodeType::Element) {
                 prev_sibling = static_cast<ElementNode*>(child.get());
             }
         }
         
         if (!prev_sibling) return false;
-        
         return matchesSelector(prev_sibling, left);
     }
     
-    // Handle ~ combinator (general sibling)
-    if (combinator == '~') {
-        std::string right = trim(selector.substr(rightmost + 1));
-        std::string left = trim(selector.substr(0, rightmost));
-        
-        if (!matchesSimpleSelector(element, right)) return false;
-        
+    if (rightmost.type == '~') {
+        // General sibling: any previous sibling must match
         if (!element->parent) return false;
         
         for (auto& child : element->parent->children) {
             if (child.get() == element) break;
-            
             if (child->getType() == NodeType::Element) {
                 ElementNode* sibling = static_cast<ElementNode*>(child.get());
                 if (matchesSelector(sibling, left)) {
@@ -820,18 +897,11 @@ bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::stri
                 }
             }
         }
-        
         return false;
     }
     
-    // Handle space combinator (descendant) - FIXED
-    if (combinator == ' ') {
-        std::string right = trim(selector.substr(rightmost + 1));
-        std::string left = trim(selector.substr(0, rightmost));
-        
-        if (!matchesSimpleSelector(element, right)) return false;
-        
-        // Walk up ancestor chain
+    if (rightmost.type == ' ') {
+        // Descendant: any ancestor must match
         DOMNode* ancestor = element->parent;
         while (ancestor) {
             if (ancestor->getType() == NodeType::Element) {
@@ -845,23 +915,73 @@ bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::stri
         return false;
     }
     
-    return matchesSimpleSelector(element, selector);
+    return false;
 }
 
 int StyleResolver::calculateSpecificity(const std::string& selector) {
-    int specificity = 0;
+    int id_count = 0;
+    int class_count = 0;
+    int type_count = 0;
+    
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    bool in_not = false;
     
     for (size_t i = 0; i < selector.length(); i++) {
-        if (selector[i] == '#') specificity += 100;
-        else if (selector[i] == '.') specificity += 10;
-        else if (selector[i] == '[') specificity += 10;
+        if (selector[i] == '(') {
+            paren_depth++;
+            // Check if entering :not()
+            if (i >= 5 && selector.substr(i-5, 5) == ":not(") {
+                in_not = true;
+            }
+        } else if (selector[i] == ')') {
+            paren_depth--;
+            if (paren_depth == 0) in_not = false;
+        } else if (selector[i] == '[') {
+            bracket_depth++;
+        } else if (selector[i] == ']') {
+            bracket_depth--;
+        }
+        
+        // Don't count specificity inside :not() - it doesn't add to specificity
+        if (paren_depth == 0 && bracket_depth == 0) {
+            if (selector[i] == '#') {
+                id_count++;
+            } else if (selector[i] == '.') {
+                class_count++;
+            } else if (bracket_depth == 1) {
+                // Inside attribute selector
+                class_count++;
+            }
+        }
+        
+        // Pseudo-classes add to class count
+        if (selector[i] == ':' && i + 1 < selector.length() && selector[i+1] != ':') {
+            if (!in_not) class_count++;
+        }
     }
     
-    if (specificity == 0 && !selector.empty() && selector[0] != '*') {
-        specificity = 1;
+    // Count type selectors (simplified - could be improved)
+    std::string temp = selector;
+    for (char c : {'>', '+', '~', ' ', '.', '#', '[', ':'}) {
+        size_t pos = 0;
+        while ((pos = temp.find(c, pos)) != std::string::npos) {
+            temp[pos] = '|';
+            pos++;
+        }
     }
     
-    return specificity;
+    std::istringstream iss(temp);
+    std::string part;
+    while (std::getline(iss, part, '|')) {
+        part = trim(part);
+        if (!part.empty() && part != "*") {
+            type_count++;
+        }
+    }
+    
+    // CSS specificity: (id, class, type)
+    return id_count * 100 + class_count * 10 + type_count;
 }
 
 void StyleResolver::applyDeclaration(const std::string& property, const std::string& value,
@@ -872,8 +992,13 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
     // Skip vendor-specific and unsupported properties
     if (prop.find("-cr-") == 0 || prop.find("-webkit-") == 0 || 
         prop.find("-moz-") == 0 || prop.find("-ms-") == 0 ||
-        prop == "border" || prop == "font-kerning" || prop == "font-variant-ligatures" ||
-        prop == "font-variant-numeric" || prop == "text-rendering") {
+        prop.find("-o-") == 0 || prop.find("-epub-") == 0) {
+        return;
+    }
+    
+    // Skip font variant properties we don't support
+    if (prop == "font-kerning" || prop == "font-variant-ligatures" ||
+        prop == "font-variant-numeric" || prop == "font-feature-settings") {
         return;
     }
     
@@ -1022,9 +1147,10 @@ void StyleResolver::applyDeclaration(const std::string& property, const std::str
             style.hyphens = ComputedStyle::Hyphens::Auto;
         }
     }
-    else if (prop == "text-indent") {
-        style.text_indent = parseLength(val, 1.0f);
-    }
+	else if (prop == "text-indent") {
+		float indent_px = parseLengthToPixels(val);
+		style.text_indent = indent_px / BASE_FONT_SIZE;
+	}
     else if (prop == "page-break-before") {
         style.page_break_before = parsePageBreak(val);
     }
@@ -1174,13 +1300,11 @@ float StyleResolver::parseLength(const std::string& value, float base_size) {
     return num;
 }
 
+static constexpr float BASE_FONT_SIZE = 16.0f;
+
 float StyleResolver::parseLengthToPixels(const std::string& value) {
     if (value.empty()) return 0.0f;
-    
-    // Handle "auto" keyword
-    if (toLowerCase(value) == "auto") {
-        return 0.0f;
-    }
+    if (toLowerCase(value) == "auto") return 0.0f;
     
     float num = 0.0f;
     size_t unit_pos = 0;
@@ -1196,13 +1320,13 @@ float StyleResolver::parseLengthToPixels(const std::string& value) {
     if (unit.empty() || unit == "px") {
         return num;
     } else if (unit == "em") {
-        return num * 16.0f;
+        return num * BASE_FONT_SIZE;  // 1em = 16px
     } else if (unit == "rem") {
-        return num * 16.0f;
+        return num * BASE_FONT_SIZE;  // 1rem = 16px
     } else if (unit == "%") {
-        return (num / 100.0f) * 16.0f;
+        return (num / 100.0f) * BASE_FONT_SIZE;
     } else if (unit == "pt") {
-        return num * 1.333f;
+        return num * 1.333f;  // 1pt = 1.333px
     }
     
     return num;
