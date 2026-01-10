@@ -127,6 +127,19 @@ HFONT CreateFontWithFamily(int size, bool bold, bool italic,
     );
 }
 
+// Helper to get font size based on element type
+int getFontSizeForType(epub::ElementType type, int base_size) {
+    switch (type) {
+        case epub::ElementType::Heading1: return static_cast<int>(base_size * 2.0);
+        case epub::ElementType::Heading2: return static_cast<int>(base_size * 1.5);
+        case epub::ElementType::Heading3: return static_cast<int>(base_size * 1.17);
+        case epub::ElementType::Heading4: return static_cast<int>(base_size * 1.0);
+        case epub::ElementType::Heading5: return static_cast<int>(base_size * 0.83);
+        case epub::ElementType::Heading6: return static_cast<int>(base_size * 0.67);
+        default: return base_size;
+    }
+}
+
 HFONT PageRenderer::selectFontForStyle(epub::TextStyle style) {
     const bool is_bold = epub::hasStyle(style, epub::TextStyle::Bold);
     const bool is_italic = epub::hasStyle(style, epub::TextStyle::Italic);
@@ -158,13 +171,12 @@ void PageRenderer::calculatePages(HDC hdc) {
     
     // Reset global tracking state for calculation
     current_x_position_ = margin_;
+    current_row_max_height_ = 0;
     
     for (size_t i = 0; i < content_.size(); i++) {
         int element_height = measureElementHeight(hdc, content_[i], content_width);
         
-        // Logic simplification: if an element is a continuation, it might not add height immediately
-        // unless it wraps. measureElementHeight returns the ADDED height to the page Y cursor.
-        
+        // If an element exceeds the remaining page height, break the page
         if (current_height + element_height > content_height && i > element_start_index) {
             PageBreak page;
             page.element_start = element_start_index;
@@ -173,6 +185,11 @@ void PageRenderer::calculatePages(HDC hdc) {
             
             element_start_index = i;
             current_height = 0;
+            current_x_position_ = margin_;
+            current_row_max_height_ = 0;
+            
+            // Re-measure for the new page context
+            element_height = measureElementHeight(hdc, content_[i], content_width);
         }
         
         current_height += element_height;
@@ -189,32 +206,54 @@ void PageRenderer::calculatePages(HDC hdc) {
 }
 
 int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& element, int width) {
-    // This is a simplified estimator.
-    // Ideally, this should run the exact same simulation as renderElement to be pixel-perfect.
-    
-    const int DEFAULT_LINE_HEIGHT = static_cast<int>(font_size_ * 1.2);
-    
     if (element.type == epub::ElementType::LineBreak) {
-        return DEFAULT_LINE_HEIGHT;
+        return font_size_;
     }
-    
-    // If it's an inline continuation, it technically adds 0 height unless it causes a wrap.
-    // For calculation safety, we assume it fits or adds 1 line if it's long.
-    if (element.is_inline_continuation) {
-        return 0; 
-    }
-    
-    // Base height for a block element
-    int height = DEFAULT_LINE_HEIGHT;
-    
-    // Add margins
-    height += static_cast<int>(element.margin_top + element.margin_bottom);
-    
+
     if (element.type == epub::ElementType::Image) {
-        // Simple placeholder estimation
-        return 300; 
+        // Estimate image height (simplified)
+        return 300 + static_cast<int>(element.margin_top + element.margin_bottom);
     }
+
+    // Determine font properties matching renderElement
+    bool is_bold = epub::hasStyle(element.style, epub::TextStyle::Bold);
+    bool is_italic = epub::hasStyle(element.style, epub::TextStyle::Italic);
+    bool has_underline = epub::hasStyle(element.style, epub::TextStyle::Underline);
+    bool has_strikethrough = epub::hasStyle(element.style, epub::TextStyle::Strikethrough);
+    bool is_small = epub::hasStyle(element.style, epub::TextStyle::Small);
+
+    int base_type_size = getFontSizeForType(element.type, font_size_);
+    int text_size = is_small ? static_cast<int>(base_type_size * 0.85) : base_type_size;
+
+    std::wstring family_to_use = font_name_;
+    if (!element.font_family.empty()) {
+        family_to_use = std::wstring(element.font_family.begin(), element.font_family.end());
+    }
+
+    HFONT font = CreateFontWithFamily(text_size, is_bold, is_italic, 
+                                    has_underline, has_strikethrough, family_to_use);
+    HFONT old_font = (HFONT)SelectObject(hdc, font);
+
+    RECT calc_rect = { 0, 0, width, 0 };
     
+    // Apply indent for the measurement if it's a new block
+    if (!element.is_inline_continuation) {
+        int indent_pixels = static_cast<int>(element.text_indent * font_size_);
+        calc_rect.left += indent_pixels;
+    }
+
+    DrawTextW(hdc, element.content.c_str(), -1, &calc_rect, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+
+    SelectObject(hdc, old_font);
+    DeleteObject(font);
+
+    int height = calc_rect.bottom - calc_rect.top;
+    
+    // Add margins if starting a new block
+    if (!element.is_inline_continuation) {
+        height += static_cast<int>(element.margin_top + element.margin_bottom);
+    }
+
     return height;
 }
 
@@ -308,14 +347,12 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
     
     switch (element.type) {
         case epub::ElementType::LineBreak:
-            // Explicit line break forces a new line
-            y_pos += font_size_; // Or current row height?
+            y_pos += font_size_; 
             current_x_position_ = rect.left;
             current_row_max_height_ = 0;
             break;
             
         case epub::ElementType::HorizontalRule: {
-            // Flush any previous row
             if (current_row_max_height_ > 0) y_pos += current_row_max_height_;
             
             HPEN pen = CreatePen(PS_SOLID, 2, RGB(128, 128, 128));
@@ -334,7 +371,6 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
         }
             
         case epub::ElementType::Image:
-            // Flush previous row
             if (current_row_max_height_ > 0) {
                 y_pos += current_row_max_height_;
                 current_row_max_height_ = 0;
@@ -357,14 +393,15 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
         case epub::ElementType::ListItem:
         case epub::ElementType::CodeBlock: {
             
-            // 1. Prepare Font
+            // 1. Prepare Font with dynamic scaling for headings
             bool is_bold = epub::hasStyle(element.style, epub::TextStyle::Bold);
             bool is_italic = epub::hasStyle(element.style, epub::TextStyle::Italic);
             bool has_underline = epub::hasStyle(element.style, epub::TextStyle::Underline);
             bool has_strikethrough = epub::hasStyle(element.style, epub::TextStyle::Strikethrough);
             bool is_small = epub::hasStyle(element.style, epub::TextStyle::Small);
             
-            int text_size = is_small ? static_cast<int>(font_size_ * 0.85) : font_size_;
+            int base_type_size = getFontSizeForType(element.type, font_size_);
+            int text_size = is_small ? static_cast<int>(base_type_size * 0.85) : base_type_size;
             
             // Use custom font family if provided, otherwise fallback to default
             std::wstring family_to_use = font_name_;
@@ -401,22 +438,14 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
             // 4. Setup DrawText flags
             UINT format = DT_NOPREFIX | DT_WORDBREAK;
             
-            // Note: Standard DrawText doesn't support full justification well.
-            // We remove the forced DT_LEFT to allow GDI to try its best, 
-            // though for true justification we'd need ExtTextOut with spacing arrays.
             switch (element.align) {
                 case epub::TextAlign::Center:
                     format |= DT_CENTER;
-                    // Reset indent for center alignment
                     if (!element.is_inline_continuation) text_rect.left = rect.left;
                     break;
                 case epub::TextAlign::Right:
                     format |= DT_RIGHT;
                     if (!element.is_inline_continuation) text_rect.left = rect.left;
-                    break;
-                case epub::TextAlign::Justify:
-                    // DT_LEFT is the closest fallback for standard DrawText
-                    format |= DT_LEFT; 
                     break;
                 default:
                     format |= DT_LEFT;
@@ -424,33 +453,21 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& element,
             }
             
             // 5. Measure and Draw
-            // First, calculate the rectangle this text would occupy
             RECT calculation_rect = text_rect;
-            int height_drawn = DrawTextW(hdc, element.content.c_str(), -1, &calculation_rect, format | DT_CALCRECT);
+            DrawTextW(hdc, element.content.c_str(), -1, &calculation_rect, format | DT_CALCRECT);
+            int height_drawn = calculation_rect.bottom - calculation_rect.top;
             int width_drawn = calculation_rect.right - calculation_rect.left;
             
-            // Heuristic to detect if text wrapped to a new line
-            // If height is significantly larger than single line height
-            bool has_wrapped = height_drawn > (text_size * 1.5);
-            
-            // Draw the actual text
             DrawTextW(hdc, element.content.c_str(), -1, &text_rect, format);
             
             // 6. Update Cursor Positions
-            if (has_wrapped) {
-                // If text wrapped, we move y_pos down
+            // Heuristic for wrap: if width is close to viewport width or height > single line
+            if (height_drawn > (text_size * 1.5)) {
                 y_pos += height_drawn;
-                
-                // Reset X to left margin for the next element
                 current_x_position_ = rect.left;
-                
-                // Since we moved Y, reset row height tracker
                 current_row_max_height_ = 0;
             } else {
-                // If text fit on the line, advance X cursor
                 current_x_position_ += width_drawn;
-                
-                // Track maximum height of elements on this current line
                 if (height_drawn > current_row_max_height_) {
                     current_row_max_height_ = height_drawn;
                 }
