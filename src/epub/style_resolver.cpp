@@ -343,7 +343,9 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     // Debug: log first few elements to see what's being processed
     static int debug_count = 0;
-    if (debug_count < 5) {
+    bool should_log = (debug_count < 5);
+    
+    if (should_log) {
         LOG_DEBUG("Processing element:", element->getTagName(), 
                  "class:", element->getAttribute("class"),
                  "id:", element->getAttribute("id"));
@@ -356,8 +358,16 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
             matched++;
-            if (debug_count < 10) {
+            if (should_log) {
                 LOG_DEBUG("  MATCH:", rule.selector);
+                // Log first few properties
+                int prop_count = 0;
+                for (const auto& decl : rule.declarations) {
+                    if (prop_count < 3) {
+                        LOG_DEBUG("    Property:", decl.first, "=", decl.second);
+                        prop_count++;
+                    }
+                }
             }
             for (const auto& decl : rule.declarations) {
                 applyDeclaration(decl.first, decl.second, element->computed_style);
@@ -365,8 +375,11 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
         }
     }
     
-    if (debug_count < 10 && matched > 0) {
+    if (should_log && matched > 0) {
         LOG_DEBUG("  Applied", matched, "rules to", element->getTagName());
+        LOG_DEBUG("  Final styles: margin-top=", element->computed_style.margin_top,
+                 "margin-bottom=", element->computed_style.margin_bottom,
+                 "text-align=", static_cast<int>(element->computed_style.text_align));
     }
 }
 
