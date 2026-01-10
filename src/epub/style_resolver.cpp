@@ -202,10 +202,7 @@ void StyleResolver::applyDefaultStyles(DOMNode* node) {
         style.display = DisplayType::Block;
         style.margin_bottom = 1.0f;
         
-        // Default text-indent for paragraphs (will be overridden by CSS)
-        if (tag == "p") {
-            style.text_indent = 1.5f; // 1.5em default for paragraphs
-        }
+        // DO NOT set default text-indent here - CSS will handle it
     }
     
     // Headings
@@ -452,36 +449,83 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
     // Parse pseudo-classes and pseudo-elements
     size_t pseudo_pos = sel.find(':');
     std::string base_selector = sel;
-    std::string pseudo;
+    std::vector<std::string> pseudo_classes;
     
     if (pseudo_pos != std::string::npos) {
         base_selector = sel.substr(0, pseudo_pos);
-        pseudo = sel.substr(pseudo_pos);
+        std::string pseudo_part = sel.substr(pseudo_pos);
         
-        // Handle :not(), :is(), :where()
-        if (pseudo.find(":not(") == 0) {
+        // Extract all pseudo-classes
+        size_t pos = 0;
+        while (pos < pseudo_part.length()) {
+            if (pseudo_part[pos] == ':') {
+                size_t next = pseudo_part.find(':', pos + 1);
+                if (next == std::string::npos) next = pseudo_part.length();
+                
+                // Handle pseudo-classes with parentheses
+                if (pos + 1 < pseudo_part.length() && 
+                    (pseudo_part.substr(pos).find("not(") == 1 ||
+                     pseudo_part.substr(pos).find("is(") == 1 ||
+                     pseudo_part.substr(pos).find("where(") == 1)) {
+                    
+                    int paren_depth = 0;
+                    size_t i = pos;
+                    while (i < pseudo_part.length()) {
+                        if (pseudo_part[i] == '(') paren_depth++;
+                        if (pseudo_part[i] == ')') {
+                            paren_depth--;
+                            if (paren_depth == 0) {
+                                next = i + 1;
+                                break;
+                            }
+                        }
+                        i++;
+                    }
+                }
+                
+                pseudo_classes.push_back(pseudo_part.substr(pos, next - pos));
+                pos = next;
+            } else {
+                pos++;
+            }
+        }
+    }
+    
+    // Process pseudo-classes
+    for (const std::string& pseudo : pseudo_classes) {
+        if (pseudo == ":first-child") {
+            if (!isFirstChild(element)) return false;
+        }
+        else if (pseudo == ":last-child") {
+            if (!isLastChild(element)) return false;
+        }
+        else if (pseudo.find(":first-of-type") == 0) {
+            if (!isFirstOfType(element)) return false;
+        }
+        else if (pseudo.find(":last-of-type") == 0) {
+            if (!isLastOfType(element)) return false;
+        }
+        else if (pseudo.find(":not(") == 0) {
             size_t paren_close = pseudo.rfind(')');
             if (paren_close != std::string::npos) {
                 std::string inner = pseudo.substr(5, paren_close - 5);
                 
-                // If element matches the inner selector, :not() fails
-                if (matchesSimpleSelector(element, inner)) {
-                    return false;
-                }
+                // Split by comma for multiple selectors
+                std::vector<std::string> not_selectors = splitSelectors(inner);
                 
-                // Element doesn't match inner selector, continue with base selector
-                // If base selector is empty, we're done (match succeeded)
-                if (base_selector.empty() || base_selector == "*") {
-                    return true;
+                for (const std::string& not_sel : not_selectors) {
+                    if (matchesSimpleSelector(element, trim(not_sel))) {
+                        return false; // Element matches :not() condition, so selector fails
+                    }
                 }
             }
-        } else if (pseudo.find(":is(") == 0 || pseudo.find(":where(") == 0) {
+        }
+        else if (pseudo.find(":is(") == 0 || pseudo.find(":where(") == 0) {
             size_t paren_close = pseudo.rfind(')');
             if (paren_close != std::string::npos) {
                 size_t paren_open = pseudo.find('(');
                 std::string inner = pseudo.substr(paren_open + 1, paren_close - paren_open - 1);
                 
-                // Split inner by comma to get multiple selectors
                 std::vector<std::string> inner_selectors = splitSelectors(inner);
                 
                 bool any_match = false;
@@ -492,19 +536,10 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
                     }
                 }
                 
-                if (!any_match) {
-                    return false;
-                }
-                
-                // Continue with base selector
-                if (base_selector.empty() || base_selector == "*") {
-                    return true;
-                }
+                if (!any_match) return false;
             }
-        } else {
-            // Other pseudo-classes/elements - ignore for now
-            // Just match the base selector
         }
+        // Ignore other pseudo-classes for now
     }
     
     if (base_selector.empty()) base_selector = "*";
@@ -590,6 +625,62 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
     return true;
 }
 
+bool StyleResolver::isFirstChild(ElementNode* element) {
+    if (!element->parent) return false;
+    
+    for (auto& child : element->parent->children) {
+        if (child->getType() == NodeType::Element) {
+            return child.get() == element;
+        }
+    }
+    return false;
+}
+
+bool StyleResolver::isLastChild(ElementNode* element) {
+    if (!element->parent) return false;
+    
+    for (auto it = element->parent->children.rbegin(); 
+         it != element->parent->children.rend(); ++it) {
+        if ((*it)->getType() == NodeType::Element) {
+            return it->get() == element;
+        }
+    }
+    return false;
+}
+
+bool StyleResolver::isFirstOfType(ElementNode* element) {
+    if (!element->parent) return false;
+    
+    const std::string& tag = element->getTagName();
+    
+    for (auto& child : element->parent->children) {
+        if (child->getType() == NodeType::Element) {
+            ElementNode* elem = static_cast<ElementNode*>(child.get());
+            if (elem->getTagName() == tag) {
+                return elem == element;
+            }
+        }
+    }
+    return false;
+}
+
+bool StyleResolver::isLastOfType(ElementNode* element) {
+    if (!element->parent) return false;
+    
+    const std::string& tag = element->getTagName();
+    
+    for (auto it = element->parent->children.rbegin(); 
+         it != element->parent->children.rend(); ++it) {
+        if ((*it)->getType() == NodeType::Element) {
+            ElementNode* elem = static_cast<ElementNode*>(it->get());
+            if (elem->getTagName() == tag) {
+                return elem == element;
+            }
+        }
+    }
+    return false;
+}
+
 bool StyleResolver::matchesAttributeSelector(ElementNode* element, const std::string& attr_selector) {
     std::string attr = trim(attr_selector);
     
@@ -612,31 +703,63 @@ bool StyleResolver::matchesAttributeSelector(ElementNode* element, const std::st
 }
 
 bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::string& selector) {
-    // Simplified complex selector matching
-    // Handle child combinator (>) before descendant combinator (space)
+    // Handle different combinators in order of precedence
     
-    // Find rightmost combinator
+    // Find rightmost combinator (working right to left)
     size_t last_gt = selector.rfind('>');
+    size_t last_plus = selector.rfind('+');
+    size_t last_tilde = selector.rfind('~');
     size_t last_space = std::string::npos;
     
-    // Find last space that's not inside brackets or after '>'
+    // Find last space that's not inside brackets/parens or adjacent to other combinators
     for (int i = static_cast<int>(selector.length()) - 1; i >= 0; i--) {
         if (selector[i] == ' ') {
-            // Make sure it's not right after '>' or before '>'
-            bool after_gt = (i > 0 && selector[i-1] == '>');
-            bool before_gt = (i < static_cast<int>(selector.length()) - 1 && selector[i+1] == '>');
+            // Make sure it's not right after/before another combinator
+            bool after_combinator = (i > 0 && (selector[i-1] == '>' || selector[i-1] == '+' || selector[i-1] == '~'));
+            bool before_combinator = (i < static_cast<int>(selector.length()) - 1 && 
+                                     (selector[i+1] == '>' || selector[i+1] == '+' || selector[i+1] == '~'));
             
-            if (!after_gt && !before_gt && (last_gt == std::string::npos || i < static_cast<int>(last_gt))) {
-                last_space = i;
-                break;
+            if (!after_combinator && !before_combinator) {
+                // Make sure this space is before all other combinators we found
+                if ((last_gt == std::string::npos || i < static_cast<int>(last_gt)) &&
+                    (last_plus == std::string::npos || i < static_cast<int>(last_plus)) &&
+                    (last_tilde == std::string::npos || i < static_cast<int>(last_tilde))) {
+                    last_space = i;
+                    break;
+                }
             }
         }
     }
     
-    // Handle > combinator
-    if (last_gt != std::string::npos && (last_space == std::string::npos || last_gt > last_space)) {
-        std::string right = trim(selector.substr(last_gt + 1));
-        std::string left = trim(selector.substr(0, last_gt));
+    // Determine which combinator is rightmost
+    size_t rightmost = std::string::npos;
+    char combinator = ' ';
+    
+    if (last_gt != std::string::npos && 
+        (rightmost == std::string::npos || last_gt > rightmost)) {
+        rightmost = last_gt;
+        combinator = '>';
+    }
+    if (last_plus != std::string::npos && 
+        (rightmost == std::string::npos || last_plus > rightmost)) {
+        rightmost = last_plus;
+        combinator = '+';
+    }
+    if (last_tilde != std::string::npos && 
+        (rightmost == std::string::npos || last_tilde > rightmost)) {
+        rightmost = last_tilde;
+        combinator = '~';
+    }
+    if (last_space != std::string::npos && 
+        (rightmost == std::string::npos || last_space > rightmost)) {
+        rightmost = last_space;
+        combinator = ' ';
+    }
+    
+    // Handle > combinator (direct child)
+    if (combinator == '>') {
+        std::string right = trim(selector.substr(rightmost + 1));
+        std::string left = trim(selector.substr(0, rightmost));
         
         if (!matchesSimpleSelector(element, right)) return false;
         if (!element->parent || element->parent->getType() != NodeType::Element) return false;
@@ -644,10 +767,62 @@ bool StyleResolver::matchesComplexSelector(ElementNode* element, const std::stri
         return matchesSelector(static_cast<ElementNode*>(element->parent), left);
     }
     
-    // Handle descendant combinator (space)
-    if (last_space != std::string::npos) {
-        std::string right = trim(selector.substr(last_space + 1));
-        std::string left = trim(selector.substr(0, last_space));
+    // Handle + combinator (adjacent sibling)
+    if (combinator == '+') {
+        std::string right = trim(selector.substr(rightmost + 1));
+        std::string left = trim(selector.substr(0, rightmost));
+        
+        if (!matchesSimpleSelector(element, right)) return false;
+        
+        // Find previous sibling
+        if (!element->parent) return false;
+        
+        ElementNode* prev_sibling = nullptr;
+        bool found_current = false;
+        
+        for (auto& child : element->parent->children) {
+            if (child.get() == element) {
+                found_current = true;
+                break;
+            }
+            if (child->getType() == NodeType::Element) {
+                prev_sibling = static_cast<ElementNode*>(child.get());
+            }
+        }
+        
+        if (!prev_sibling) return false;
+        
+        return matchesSelector(prev_sibling, left);
+    }
+    
+    // Handle ~ combinator (general sibling)
+    if (combinator == '~') {
+        std::string right = trim(selector.substr(rightmost + 1));
+        std::string left = trim(selector.substr(0, rightmost));
+        
+        if (!matchesSimpleSelector(element, right)) return false;
+        
+        // Find any previous sibling matching left selector
+        if (!element->parent) return false;
+        
+        for (auto& child : element->parent->children) {
+            if (child.get() == element) break;
+            
+            if (child->getType() == NodeType::Element) {
+                ElementNode* sibling = static_cast<ElementNode*>(child.get());
+                if (matchesSelector(sibling, left)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    // Handle space combinator (descendant)
+    if (combinator == ' ') {
+        std::string right = trim(selector.substr(rightmost + 1));
+        std::string left = trim(selector.substr(0, rightmost));
         
         if (!matchesSimpleSelector(element, right)) return false;
         

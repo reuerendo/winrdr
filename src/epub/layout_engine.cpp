@@ -16,6 +16,7 @@ LayoutEngine::LayoutEngine()
     , current_inline_align_(TextAlign::Left)
     , current_block_type_(ElementType::Text)
     , current_list_level_(0)
+    , current_text_indent_(0.0f)
     , in_inline_context_(false)
 {}
 
@@ -124,6 +125,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         // Set block context
         ElementType old_block_type = current_block_type_;
         TextAlign old_align = current_inline_align_;
+        float old_text_indent = current_text_indent_;
         
         // Determine block type from tag
         if (tag == "p") {
@@ -151,6 +153,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         }
         
         current_inline_align_ = computeTextAlign(style);
+        current_text_indent_ = style.text_indent;
         
         // Adjust list level for lists
         int new_list_level = list_level;
@@ -176,6 +179,7 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
         // Restore context
         current_block_type_ = old_block_type;
         current_inline_align_ = old_align;
+        current_text_indent_ = old_text_indent;
     }
     else if (style.display == DisplayType::Inline || 
              style.display == DisplayType::InlineBlock) {
@@ -274,10 +278,7 @@ void LayoutEngine::flushInlineContent() {
     elem.style = current_inline_style_;
     elem.align = current_inline_align_;
     elem.list_level = current_list_level_;
-    
-    // Store text-indent from computed style
-    // We need to pass it through somehow - for now just set in list_level field as hack
-    // TODO: Add text_indent field to TextElement
+    elem.text_indent = current_text_indent_;
     
     output_.push_back(elem);
     

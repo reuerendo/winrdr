@@ -37,6 +37,12 @@ private:
     bool matchesComplexSelector(ElementNode* element, const std::string& selector);
     bool matchesAttributeSelector(ElementNode* element, const std::string& attr_selector);
     
+    // Pseudo-class helpers
+    bool isFirstChild(ElementNode* element);
+    bool isLastChild(ElementNode* element);
+    bool isFirstOfType(ElementNode* element);
+    bool isLastOfType(ElementNode* element);
+    
     int calculateSpecificity(const std::string& selector);
     
     void applyDeclaration(const std::string& property, const std::string& value, 
