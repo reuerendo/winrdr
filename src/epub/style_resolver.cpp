@@ -201,6 +201,11 @@ void StyleResolver::applyDefaultStyles(DOMNode* node) {
         tag == "figcaption" || tag == "address" || tag == "center") {
         style.display = DisplayType::Block;
         style.margin_bottom = 1.0f;
+        
+        // Default text-indent for paragraphs (will be overridden by CSS)
+        if (tag == "p") {
+            style.text_indent = 1.5f; // 1.5em default for paragraphs
+        }
     }
     
     // Headings

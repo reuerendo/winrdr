@@ -275,6 +275,10 @@ void LayoutEngine::flushInlineContent() {
     elem.align = current_inline_align_;
     elem.list_level = current_list_level_;
     
+    // Store text-indent from computed style
+    // We need to pass it through somehow - for now just set in list_level field as hack
+    // TODO: Add text_indent field to TextElement
+    
     output_.push_back(elem);
     
     current_inline_text_.clear();
