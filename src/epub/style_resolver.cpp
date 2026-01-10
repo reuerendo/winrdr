@@ -718,44 +718,6 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
     return true;
 }
 
-bool StyleResolver::isAdjacentSibling(ElementNode* element, ElementNode* sibling) {
-    if (!element->parent) return false;
-    
-    bool found_sibling = false;
-    ElementNode* last_element = nullptr;
-    
-    for (auto& child : element->parent->children) {
-        if (child.get() == element) {
-            return last_element == sibling;
-        }
-        
-        if (child->getType() == NodeType::Element) {
-            last_element = static_cast<ElementNode*>(child.get());
-        }
-        // Text nodes are skipped unless they contain non-whitespace
-        else if (child->getType() == NodeType::Text) {
-            TextNode* text_node = static_cast<TextNode*>(child.get());
-            const std::string& text = text_node->getText();
-            
-            // Check if text contains any non-whitespace
-            bool has_content = false;
-            for (char c : text) {
-                if (!std::isspace(c)) {
-                    has_content = true;
-                    break;
-                }
-            }
-            
-            // If text has content, it breaks the adjacency
-            if (has_content) {
-                last_element = nullptr;
-            }
-        }
-    }
-    
-    return false;
-}
-
 bool StyleResolver::isFirstChild(ElementNode* element) {
     if (!element->parent) return false;
     
