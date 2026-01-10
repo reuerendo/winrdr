@@ -37,6 +37,7 @@ private:
     TextAlign current_inline_align_;
     ElementType current_block_type_;
     int current_list_level_;
+    float current_text_indent_;
     
     // Track if we're in inline context
     bool in_inline_context_;
