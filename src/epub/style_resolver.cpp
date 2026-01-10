@@ -72,18 +72,26 @@ void StyleResolver::clear() {
 std::vector<std::string> StyleResolver::splitSelectors(const std::string& selector) {
     std::vector<std::string> result;
     std::string current;
+    int paren_depth = 0;
     int bracket_depth = 0;
     
     for (size_t i = 0; i < selector.length(); i++) {
         char c = selector[i];
         
-        if (c == '[') {
+        if (c == '(') {
+            paren_depth++;
+            current += c;
+        } else if (c == ')') {
+            paren_depth--;
+            current += c;
+        } else if (c == '[') {
             bracket_depth++;
             current += c;
         } else if (c == ']') {
             bracket_depth--;
             current += c;
-        } else if (c == ',' && bracket_depth == 0) {
+        } else if (c == ',' && paren_depth == 0 && bracket_depth == 0) {
+            // This is a real selector separator
             std::string trimmed = trim(current);
             if (!trimmed.empty()) {
                 result.push_back(trimmed);
@@ -433,28 +441,52 @@ bool StyleResolver::matchesSimpleSelector(ElementNode* element, const std::strin
         pseudo = sel.substr(pseudo_pos);
         
         // Handle :not(), :is(), :where()
-        if (pseudo.find(":not(") == 0 || pseudo.find(":is(") == 0 || 
-            pseudo.find(":where(") == 0) {
-            size_t paren_close = pseudo.find(')');
+        if (pseudo.find(":not(") == 0) {
+            size_t paren_close = pseudo.rfind(')');
             if (paren_close != std::string::npos) {
-                std::string inner = pseudo.substr(pseudo.find('(') + 1, 
-                                                  paren_close - pseudo.find('(') - 1);
+                std::string inner = pseudo.substr(5, paren_close - 5);
                 
-                bool matches_inner = matchesSimpleSelector(element, inner);
+                // If element matches the inner selector, :not() fails
+                if (matchesSimpleSelector(element, inner)) {
+                    return false;
+                }
                 
-                if (pseudo.find(":not(") == 0) {
-                    if (matches_inner) return false;
-                } else {
-                    if (!matches_inner) return false;
+                // Element doesn't match inner selector, continue with base selector
+                // If base selector is empty, we're done (match succeeded)
+                if (base_selector.empty() || base_selector == "*") {
+                    return true;
+                }
+            }
+        } else if (pseudo.find(":is(") == 0 || pseudo.find(":where(") == 0) {
+            size_t paren_close = pseudo.rfind(')');
+            if (paren_close != std::string::npos) {
+                size_t paren_open = pseudo.find('(');
+                std::string inner = pseudo.substr(paren_open + 1, paren_close - paren_open - 1);
+                
+                // Split inner by comma to get multiple selectors
+                std::vector<std::string> inner_selectors = splitSelectors(inner);
+                
+                bool any_match = false;
+                for (const std::string& inner_sel : inner_selectors) {
+                    if (matchesSimpleSelector(element, trim(inner_sel))) {
+                        any_match = true;
+                        break;
+                    }
+                }
+                
+                if (!any_match) {
+                    return false;
                 }
                 
                 // Continue with base selector
-                if (base_selector.empty()) return true;
+                if (base_selector.empty() || base_selector == "*") {
+                    return true;
+                }
             }
+        } else {
+            // Other pseudo-classes/elements - ignore for now
+            // Just match the base selector
         }
-        
-        // For now, ignore other pseudo-classes/elements
-        // (proper implementation would require DOM tree traversal)
     }
     
     if (base_selector.empty()) base_selector = "*";
