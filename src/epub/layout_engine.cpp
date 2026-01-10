@@ -80,6 +80,20 @@ void LayoutEngine::layoutElement(ElementNode* element, int list_level) {
     const std::string& tag = element->getTagName();
     const ComputedStyle& style = element->computed_style;
     
+    // DIAGNOSTIC: Log inline elements being processed
+    if (style.display == DisplayType::Inline || 
+        style.display == DisplayType::InlineBlock) {
+        
+        static int inline_count = 0;
+        if (inline_count < 30) {
+            LOG_DEBUG("Processing inline element:", tag,
+                     "bold:", style.bold,
+                     "italic:", style.italic,
+                     "current_inline_style:", (int)current_inline_style_);
+            inline_count++;
+        }
+    }
+    
     if (tag == "br") {
         if (in_inline_context_) {
             flushInlineContent();

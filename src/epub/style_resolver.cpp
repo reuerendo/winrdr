@@ -310,34 +310,50 @@ void StyleResolver::applyCSSRules(DOMNode* node) {
     
     ElementNode* element = static_cast<ElementNode*>(node);
     
-    // Collect all matching rules with their specificity
+    // DIAGNOSTIC: Log all inline elements
+    const std::string& tag = element->getTagName();
+    if (tag == "em" || tag == "i" || tag == "strong" || tag == "b" || 
+        tag == "cite" || tag == "var" || tag == "span") {
+        
+        std::string classes = element->getAttribute("class");
+        LOG_DEBUG("Found inline element:", tag, 
+                  "class:", (classes.empty() ? "none" : classes),
+                  "default bold:", element->computed_style.bold,
+                  "default italic:", element->computed_style.italic);
+    }
+    
     std::vector<std::pair<int, const CSSRule*>> matching_rules;
     
     for (const CSSRule& rule : rules_) {
         if (matchesSelector(element, rule.selector)) {
             matching_rules.push_back({rule.specificity, &rule});
+            
+            // DIAGNOSTIC: Log matched rules for inline elements
+            if (tag == "em" || tag == "i" || tag == "strong" || tag == "b") {
+                LOG_DEBUG("  Matched rule:", rule.selector, 
+                         "declarations:", rule.declarations.size());
+                
+                for (const auto& decl : rule.declarations) {
+                    LOG_DEBUG("    ", decl.first, ":", decl.second);
+                }
+            }
         }
     }
     
-    // DEBUG: Log matched rules for first few elements
-    static int debug_count = 0;
-    if (debug_count < 10 && !matching_rules.empty()) {
-        LOG_DEBUG("Element", element->getTagName(), "matched", matching_rules.size(), "rules");
-        for (const auto& pair : matching_rules) {
-            LOG_DEBUG("  Selector:", pair.second->selector, "specificity:", pair.first);
-        }
-        debug_count++;
-    }
-    
-    // Sort by specificity (lower first, so higher specificity overwrites)
     std::sort(matching_rules.begin(), matching_rules.end(),
              [](const auto& a, const auto& b) { return a.first < b.first; });
     
-    // Apply in order of specificity
     for (const auto& pair : matching_rules) {
         for (const auto& decl : pair.second->declarations) {
             applyDeclaration(decl.first, decl.second, element->computed_style);
         }
+    }
+    
+    // DIAGNOSTIC: Log final computed style for inline elements
+    if (tag == "em" || tag == "i" || tag == "strong" || tag == "b") {
+        LOG_DEBUG("  Final computed style:",
+                  "bold:", element->computed_style.bold,
+                  "italic:", element->computed_style.italic);
     }
 }
 

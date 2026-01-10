@@ -319,6 +319,8 @@ void PageRenderer::goToPage(size_t page) {
     }
 }
 
+// Add to PageRenderer::render() to verify styles are passed correctly
+
 void PageRenderer::render(HDC hdc) {
     if (pages_.empty()) {
         calculatePages(hdc);
@@ -330,6 +332,56 @@ void PageRenderer::render(HDC hdc) {
     }
     
     const PageBreak& page = pages_[current_page_];
+    
+    // DIAGNOSTIC: Log elements on current page with their styles
+    static bool logged_page_styles = false;
+    if (!logged_page_styles) {
+        LOG_INFO("=== Rendering page", current_page_ + 1, "===");
+        
+        for (size_t i = 0; i < std::min(size_t(10), page.element_count); i++) {
+            size_t elem_idx = page.element_start + i;
+            if (elem_idx >= content_.size()) break;
+            
+            const auto& elem = content_[elem_idx];
+            
+            std::string style_str = "Normal";
+            if (epub::hasStyle(elem.style, epub::TextStyle::Bold)) style_str = "Bold";
+            if (epub::hasStyle(elem.style, epub::TextStyle::Italic)) {
+                if (style_str == "Bold") style_str = "BoldItalic";
+                else style_str = "Italic";
+            }
+            
+            std::string type_str;
+            switch (elem.type) {
+                case epub::ElementType::Paragraph: type_str = "Paragraph"; break;
+                case epub::ElementType::Text: type_str = "Text"; break;
+                case epub::ElementType::Heading1: type_str = "H1"; break;
+                case epub::ElementType::Heading2: type_str = "H2"; break;
+                default: type_str = "Other"; break;
+            }
+            
+            std::wstring preview = elem.content;
+            if (preview.length() > 40) preview = preview.substr(0, 40) + L"...";
+            
+            std::string preview_utf8;
+#ifdef _WIN32
+            int size = WideCharToMultiByte(CP_UTF8, 0, preview.c_str(), -1, 
+                                          nullptr, 0, nullptr, nullptr);
+            if (size > 0) {
+                preview_utf8.resize(size - 1);
+                WideCharToMultiByte(CP_UTF8, 0, preview.c_str(), -1, 
+                                   &preview_utf8[0], size, nullptr, nullptr);
+            }
+#endif
+            
+            LOG_DEBUG("  Element", i, ":",
+                     "type:", type_str,
+                     "style:", style_str,
+                     "text:", preview_utf8);
+        }
+        
+        logged_page_styles = true;
+    }
     
     SetBkMode(hdc, TRANSPARENT);
     

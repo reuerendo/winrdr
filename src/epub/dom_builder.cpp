@@ -7,6 +7,8 @@ namespace epub {
 
 DOMBuilder::DOMBuilder() {}
 
+// Add to DOMBuilder::parse() to log HTML structure
+
 std::unique_ptr<DocumentNode> DOMBuilder::parse(const std::string& html) {
     ParserState state;
     state.document = std::make_unique<DocumentNode>();
@@ -23,6 +25,55 @@ std::unique_ptr<DocumentNode> DOMBuilder::parse(const std::string& html) {
             LOG_DEBUG("Skipped XML declaration");
         }
     }
+    
+    // DIAGNOSTIC: Log sample of HTML content
+    size_t sample_size = std::min(size_t(500), html.length());
+    std::string sample = html.substr(pos, sample_size);
+    LOG_DEBUG("HTML sample (first 500 chars):", sample);
+    
+    // DIAGNOSTIC: Count inline formatting tags
+    size_t em_count = 0, strong_count = 0, i_count = 0, b_count = 0;
+    size_t span_count = 0;
+    
+    size_t search_pos = 0;
+    while ((search_pos = html.find("<em", search_pos)) != std::string::npos) {
+        em_count++;
+        search_pos++;
+    }
+    search_pos = 0;
+    while ((search_pos = html.find("<strong", search_pos)) != std::string::npos) {
+        strong_count++;
+        search_pos++;
+    }
+    search_pos = 0;
+    while ((search_pos = html.find("<i", search_pos)) != std::string::npos) {
+        // Check if it's <i> or <i > not <img> etc
+        if (search_pos + 2 < html.length() && 
+            (html[search_pos + 2] == '>' || html[search_pos + 2] == ' ')) {
+            i_count++;
+        }
+        search_pos++;
+    }
+    search_pos = 0;
+    while ((search_pos = html.find("<b", search_pos)) != std::string::npos) {
+        if (search_pos + 2 < html.length() && 
+            (html[search_pos + 2] == '>' || html[search_pos + 2] == ' ')) {
+            b_count++;
+        }
+        search_pos++;
+    }
+    search_pos = 0;
+    while ((search_pos = html.find("<span", search_pos)) != std::string::npos) {
+        span_count++;
+        search_pos++;
+    }
+    
+    LOG_INFO("HTML formatting tags count:",
+             "em:", em_count,
+             "strong:", strong_count,
+             "i:", i_count,
+             "b:", b_count,
+             "span:", span_count);
     
     parseContent(html, pos, state);
     
