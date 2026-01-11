@@ -4,12 +4,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <memory>
 
-typedef struct lxb_css_memory lxb_css_memory_t;
-typedef struct lxb_css_parser lxb_css_parser_t;
-typedef struct lxb_css_stylesheet lxb_css_stylesheet_t;
-typedef struct lxb_css_selector lxb_css_selector_t;
 typedef struct lxb_selectors lxb_selectors_t;
 typedef struct lxb_dom_node lxb_dom_node_t;
 typedef struct lxb_dom_element lxb_dom_element_t;
@@ -90,9 +85,7 @@ public:
     void clear();
     
     bool loadDefaultStyles(const std::string& css_file_path);
-    
     bool parseStylesheet(const std::string& css);
-    
     void setDocument(lxb_html_document_t* document);
     
     CSSComputedStyle computeStyle(lxb_dom_node_t* node);
@@ -100,13 +93,21 @@ public:
     TextStyle convertToTextStyle(const CSSComputedStyle& css_style);
     TextAlign convertToTextAlign(const CSSComputedStyle& css_style);
     
-    size_t getRulesCount() const;
+    size_t getRulesCount() const { return rules_.size(); }
 
 private:
     struct PropertyValue {
         std::string value;
         int specificity;
     };
+    
+    struct RuleData {
+        std::string selector;
+        std::unordered_map<std::string, std::string> properties;
+        int specificity;
+    };
+    
+    void parseSimpleCSS(const std::string& css);
     
     void applyProperty(const std::string& name, const std::string& value, 
                       CSSComputedStyle& style);
@@ -137,14 +138,18 @@ private:
     std::string trim(const std::string& str);
     std::string toLowerCase(const std::string& str);
     
-    int calculateSpecificity(lxb_css_selector_t* selector);
+    int calculateSpecificity(const std::string& selector);
+    bool matchesSelector(lxb_dom_node_t* node, const std::string& selector);
     
-    lxb_css_memory_t* css_memory_;
-    lxb_css_parser_t* css_parser_;
+    std::string getTagName(lxb_dom_node_t* node);
+    std::string getClassName(lxb_dom_node_t* node);
+    std::string getIdName(lxb_dom_node_t* node);
+    std::string getAttributeValue(lxb_dom_node_t* node, const std::string& attr_name);
+    
     lxb_selectors_t* selectors_;
     lxb_html_document_t* document_;
     
-    std::vector<lxb_css_stylesheet_t*> stylesheets_;
+    std::vector<RuleData> rules_;
     std::unordered_map<lxb_dom_element_t*, std::unordered_map<std::string, PropertyValue>> inline_styles_;
 };
 
