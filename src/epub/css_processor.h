@@ -144,6 +144,13 @@ private:
     
     int calculateSpecificity(const std::string& selector);
     bool matchesSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesSimpleSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesBasicSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesDescendantSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesChildSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesAdjacentSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesSiblingSelector(lxb_dom_node_t* node, const std::string& selector);
+    bool matchesPseudoClass(lxb_dom_node_t* node, const std::string& pseudo);
     
     std::string getTagName(lxb_dom_node_t* node);
     std::string getClassName(lxb_dom_node_t* node);
