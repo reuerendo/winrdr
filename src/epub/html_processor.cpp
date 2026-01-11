@@ -89,6 +89,18 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             goto process_children;
         }
         
+        // Skip whitespace-only text nodes
+        bool is_whitespace_only = true;
+        for (char c : text) {
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                is_whitespace_only = false;
+                break;
+            }
+        }
+        if (is_whitespace_only) {
+            goto process_children;
+        }
+        
         std::wstring wide_text;
 #ifdef _WIN32
         int size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
@@ -129,16 +141,39 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
                     elem.css_font_size = parent_css.font_size;
                     elem.css_line_height = parent_css.line_height;
                     elem.css_letter_spacing = parent_css.letter_spacing;
-                    elem.css_margin_top = parent_css.margin_top;
-                    elem.css_margin_bottom = parent_css.margin_bottom;
-                    elem.css_margin_left = parent_css.margin_left;
-                    elem.css_margin_right = parent_css.margin_right;
-                    elem.css_padding_top = parent_css.padding_top;
-                    elem.css_padding_bottom = parent_css.padding_bottom;
-                    elem.css_padding_left = parent_css.padding_left;
-                    elem.css_padding_right = parent_css.padding_right;
                     elem.css_text_indent = parent_css.text_indent;
                     elem.css_small_caps = parent_css.small_caps;
+                    
+                    // Check if this is the first text node in this block element
+                    // by checking if there are any previous text elements with the same block type
+                    bool is_first_in_block = true;
+                    if (!output.empty()) {
+                        // Look back to see if we've already added text from this block
+                        for (int i = static_cast<int>(output.size()) - 1; i >= 0; i--) {
+                            const TextElement& prev = output[i];
+                            // Stop at line break or different block type
+                            if (prev.type == ElementType::LineBreak) {
+                                break;
+                            }
+                            // If we find same block type, this is not the first
+                            if (prev.type == block_type && prev.type != ElementType::Text) {
+                                is_first_in_block = false;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Only apply margins/padding to first text element in block
+                    if (is_first_in_block) {
+                        elem.css_margin_top = parent_css.margin_top;
+                        elem.css_margin_bottom = parent_css.margin_bottom;
+                        elem.css_margin_left = parent_css.margin_left;
+                        elem.css_margin_right = parent_css.margin_right;
+                        elem.css_padding_top = parent_css.padding_top;
+                        elem.css_padding_bottom = parent_css.padding_bottom;
+                        elem.css_padding_left = parent_css.padding_left;
+                        elem.css_padding_right = parent_css.padding_right;
+                    }
                 }
             }
             
