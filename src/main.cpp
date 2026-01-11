@@ -17,6 +17,7 @@ HWND g_hwnd_main = nullptr;
 std::string g_current_file;
 HWND g_toc_window = nullptr;
 std::vector<size_t> g_toc_chapter_indices;
+bool g_css_debug_enabled = false;
 
 void testCSSParsing() {
     LOG_INFO("=== Testing CSS Box Model Parsing ===");
@@ -24,11 +25,9 @@ void testCSSParsing() {
     epub::CSSBoxModelApplier applier;
     epub::CSSComputedStyle style;
     
-    // Test 1: margin-top with rem
     applier.applyProperty("margin-top", "10.5rem", style);
     LOG_INFO("Test 1 - margin-top: 10.5rem ->", style.margin_top, "(expected: 168)");
     
-    // Test 2: margin with shorthand
     style = epub::CSSComputedStyle();
     applier.applyProperty("margin", "1.5rem", style);
     LOG_INFO("Test 2 - margin: 1.5rem ->", 
@@ -38,7 +37,6 @@ void testCSSParsing() {
              "left:", style.margin_left,
              "(expected: 24 24 24 24)");
     
-    // Test 3: padding
     style = epub::CSSComputedStyle();
     applier.applyProperty("padding", "0 0rem 0 0rem", style);
     LOG_INFO("Test 3 - padding: 0 0rem 0 0rem ->",
@@ -48,7 +46,6 @@ void testCSSParsing() {
              "left:", style.padding_left,
              "(expected: 0 0 0 0)");
     
-    // Test 4: text-indent
     style = epub::CSSComputedStyle();
     applier.applyProperty("text-indent", "1.5em", style);
     LOG_INFO("Test 4 - text-indent: 1.5em ->", style.text_indent, "(expected: 24)");
@@ -93,7 +90,6 @@ void UpdateTitle() {
         title += L" - Глава " + std::to_wstring(g_current_chapter + 1) + 
                  L" / " + std::to_wstring(g_parser.getChapterCount());
         
-        // Only show page info if pages are calculated
         if (g_renderer.getPageCount() > 0) {
             title += L" - Страница " + std::to_wstring(g_renderer.getCurrentPage() + 1) +
                      L" / " + std::to_wstring(g_renderer.getPageCount());
@@ -122,7 +118,18 @@ void LoadChapter(size_t index) {
     
     g_current_chapter = index;
     
+    if (g_css_debug_enabled) {
+        g_parser.getHTMLProcessor().getCSSProcessor().enableDebugMode(true);
+    }
+    
     epub::FormattedContent content = g_parser.getChapterContent(index);
+    
+    if (g_css_debug_enabled) {
+        std::string debug_file = "css_debug_chapter_" + std::to_string(index + 1) + ".txt";
+        g_parser.getHTMLProcessor().getCSSProcessor().saveDebugReport(debug_file);
+        LOG_INFO("CSS debug report saved:", debug_file);
+        g_parser.getHTMLProcessor().getCSSProcessor().enableDebugMode(false);
+    }
     
     LOG_DEBUG("Chapter content elements:", content.size());
     
@@ -133,8 +140,6 @@ void LoadChapter(size_t index) {
         UpdateWindow(g_hwnd_main);
         UpdateTitle();
     }
-    
-    // Don't save here - will be saved after goToPage or navigation
 }
 
 LRESULT CALLBACK TOCWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -209,7 +214,6 @@ void ShowTOC() {
         return;
     }
     
-    // Register window class for TOC
     static bool class_registered = false;
     if (!class_registered) {
         WNDCLASSW wc = {};
@@ -222,7 +226,6 @@ void ShowTOC() {
         class_registered = true;
     }
     
-    // Create TOC window
     g_toc_window = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         L"TOCWindowClass",
@@ -234,7 +237,6 @@ void ShowTOC() {
     
     if (!g_toc_window) return;
     
-    // Create listbox inside TOC window
     HWND listbox = CreateWindowExW(
         0,
         WC_LISTBOXW,
@@ -249,10 +251,8 @@ void ShowTOC() {
         return;
     }
     
-    // Set default GUI font for listbox
     SendMessageW(listbox, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
     
-    // Add TOC items
     g_toc_chapter_indices.clear();
     for (const auto& item : toc) {
         std::wstring indent(item.level * 2, L' ');
@@ -286,7 +286,6 @@ void OpenFile() {
         if (g_parser.open(path)) {
             LOG_INFO("EPUB file opened successfully");
             
-            // Load default EPUB styles
             std::wstring exe_path = GetExecutablePath();
             std::string default_css_path = wstring_to_utf8(exe_path + L"epub.css");
             g_parser.getHTMLProcessor().getCSSProcessor().loadDefaultStyles(default_css_path);
@@ -294,7 +293,6 @@ void OpenFile() {
             g_current_file = path;
             g_renderer.setImageCache(&g_parser.getImageCache());
             
-            // Try to restore position
             epub::BookPosition pos = POSITION_MGR.loadPosition(path);
             
             if (pos.chapter_index < g_parser.getChapterCount()) {
@@ -351,7 +349,6 @@ void PrevPage() {
     } else {
         if (g_current_chapter > 0) {
             PrevChapter();
-            // Go to last page of previous chapter
             if (g_renderer.getPageCount() > 0) {
                 g_renderer.goToPage(g_renderer.getPageCount() - 1);
                 InvalidateRect(g_hwnd_main, nullptr, TRUE);
@@ -392,7 +389,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                                     L"← / Page Up - предыдущая страница\n"
                                     L"Ctrl+→ - следующая глава\n"
                                     L"Ctrl+← - предыдущая глава\n"
-                                    L"Ctrl+T - оглавление";
+                                    L"Ctrl+T - оглавление\n"
+                                    L"Ctrl+D - включить/выключить отладку CSS";
                 DrawTextW(hdc, msg, -1, &rect, DT_CENTER | DT_VCENTER);
             }
             
@@ -432,6 +430,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                         ShowTOC();
                     }
                     break;
+                case 'D':
+                    if (GetKeyState(VK_CONTROL) & 0x8000) {
+                        g_css_debug_enabled = !g_css_debug_enabled;
+                        std::wstring msg = g_css_debug_enabled ? 
+                            L"CSS Debug Mode: ENABLED\nОтчёт будет сохранён при загрузке следующей главы" :
+                            L"CSS Debug Mode: DISABLED";
+                        MessageBoxW(g_hwnd_main, msg.c_str(), L"CSS Debug", MB_OK | MB_ICONINFORMATION);
+                        LOG_INFO("CSS debug mode:", g_css_debug_enabled ? "enabled" : "disabled");
+                    }
+                    break;
             }
             break;
             
@@ -453,6 +461,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                     break;
                 case 3:
                     PostQuitMessage(0);
+                    break;
+                case 4:
+                    g_css_debug_enabled = !g_css_debug_enabled;
+                    {
+                        std::wstring msg = g_css_debug_enabled ? 
+                            L"CSS Debug Mode: ENABLED\nОтчёт будет сохранён при загрузке следующей главы" :
+                            L"CSS Debug Mode: DISABLED";
+                        MessageBoxW(g_hwnd_main, msg.c_str(), L"CSS Debug", MB_OK | MB_ICONINFORMATION);
+                        LOG_INFO("CSS debug mode:", g_css_debug_enabled ? "enabled" : "disabled");
+                    }
                     break;
             }
             break;
@@ -495,6 +513,8 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdshow) {
     HMENU file_menu = CreateMenu();
     AppendMenuW(file_menu, MF_STRING, 1, L"Открыть (Ctrl+O)");
     AppendMenuW(file_menu, MF_STRING, 2, L"Оглавление (Ctrl+T)");
+    AppendMenuW(file_menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(file_menu, MF_STRING, 4, L"Включить отладку CSS (Ctrl+D)");
     AppendMenuW(file_menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(file_menu, MF_STRING, 3, L"Выход");
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)file_menu, L"Файл");
