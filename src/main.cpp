@@ -125,9 +125,16 @@ void LoadChapter(size_t index) {
     epub::FormattedContent content = g_parser.getChapterContent(index);
     
     if (g_css_debug_enabled) {
-        std::string debug_file = "css_debug_chapter_" + std::to_string(index + 1) + ".txt";
+        std::wstring exe_path = GetExecutablePath();
+        std::string debug_filename = "css_debug_chapter_" + std::to_string(index + 1) + ".txt";
+        std::string debug_file = wstring_to_utf8(exe_path) + debug_filename;
+        
         g_parser.getHTMLProcessor().getCSSProcessor().saveDebugReport(debug_file);
         LOG_INFO("CSS debug report saved:", debug_file);
+        
+        std::wstring msg = L"CSS Debug отчёт сохранён:\n" + exe_path + utf8_to_wstring(debug_filename);
+        MessageBoxW(g_hwnd_main, msg.c_str(), L"CSS Debug", MB_OK | MB_ICONINFORMATION);
+        
         g_parser.getHTMLProcessor().getCSSProcessor().enableDebugMode(false);
     }
     

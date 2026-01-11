@@ -33,16 +33,25 @@ void CSSDebugLogger::logElement(lxb_dom_node_t* node,
 }
 
 void CSSDebugLogger::printReport(const std::string& output_path) {
+    LOG_INFO("Attempting to save CSS debug report to:", output_path);
+    
     std::ofstream file(output_path);
     if (!file.is_open()) {
         LOG_ERROR("Failed to open CSS debug report file:", output_path);
+        
+#ifdef _WIN32
+        DWORD error = GetLastError();
+        LOG_ERROR("Windows error code:", error);
+#endif
         return;
     }
     
+    LOG_INFO("File opened successfully, writing report...");
     writeReport(file);
     
     file.close();
-    LOG_INFO("CSS debug report saved to:", output_path);
+    LOG_INFO("CSS debug report saved successfully to:", output_path);
+    LOG_INFO("Report contains", elements_.size(), "elements");
 }
 
 void CSSDebugLogger::printReportToConsole() {
