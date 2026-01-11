@@ -254,8 +254,14 @@ process_children:
 
 void HTMLProcessor::extractAndLoadImages(lxb_html_document_t* document, ZipHandler* zip,
                                         const std::string& base_path) {
-    lxb_dom_collection_t* collection = lxb_dom_collection_make(&document->dom_document, 128);
+    lxb_dom_collection_t* collection = lxb_dom_collection_create(&document->dom_document);
     if (!collection) return;
+    
+    lxb_status_t status = lxb_dom_collection_init(collection, 128);
+    if (status != LXB_STATUS_OK) {
+        lxb_dom_collection_destroy(collection, true);
+        return;
+    }
     
     lxb_html_body_element_t* body_element = lxb_html_document_body_element(document);
     if (!body_element) {
@@ -265,7 +271,7 @@ void HTMLProcessor::extractAndLoadImages(lxb_html_document_t* document, ZipHandl
     
     lxb_dom_element_t* body = lxb_dom_interface_element(body_element);
     
-    lxb_status_t status = lxb_dom_elements_by_tag_name(
+    status = lxb_dom_elements_by_tag_name(
         body,
         collection,
         reinterpret_cast<const lxb_char_t*>("img"),
@@ -306,8 +312,14 @@ void HTMLProcessor::extractAndLoadImages(lxb_html_document_t* document, ZipHandl
 
 void HTMLProcessor::extractStylesheets(lxb_html_document_t* document,
                                       std::vector<std::string>& stylesheets) {
-    lxb_dom_collection_t* collection = lxb_dom_collection_make(&document->dom_document, 16);
+    lxb_dom_collection_t* collection = lxb_dom_collection_create(&document->dom_document);
     if (!collection) return;
+    
+    lxb_status_t status = lxb_dom_collection_init(collection, 16);
+    if (status != LXB_STATUS_OK) {
+        lxb_dom_collection_destroy(collection, true);
+        return;
+    }
     
     lxb_html_head_element_t* head_element = lxb_html_document_head_element(document);
     if (!head_element) {
@@ -317,7 +329,7 @@ void HTMLProcessor::extractStylesheets(lxb_html_document_t* document,
     
     lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
     
-    lxb_status_t status = lxb_dom_elements_by_tag_name(
+    status = lxb_dom_elements_by_tag_name(
         head,
         collection,
         reinterpret_cast<const lxb_char_t*>("style"),

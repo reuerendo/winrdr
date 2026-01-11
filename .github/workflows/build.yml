@@ -13,6 +13,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        clean: true
     
     - name: Create libs directory
       run: New-Item -ItemType Directory -Force -Path libs
@@ -44,6 +46,15 @@ jobs:
         cmake --build build --config Release
         Get-ChildItem -Path build -Recurse -Filter "*.lib" | ForEach-Object { Write-Host "Found library: $($_.FullName)" }
         cd ../..
+    
+    - name: List Lexbor build directory
+      run: |
+        Write-Host "Lexbor build directory contents:"
+        Get-ChildItem -Path libs/lexbor/build -Recurse -Filter "*.lib" | ForEach-Object { Write-Host "  $($_.FullName)" }
+    
+    - name: Clean build directory
+      run: |
+        if (Test-Path build) { Remove-Item -Recurse -Force build }
     
     - name: Configure CMake
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release

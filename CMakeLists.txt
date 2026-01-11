@@ -69,13 +69,17 @@ if(LEXBOR_NS_LIB)
 endif()
 
 if(NOT LEXBOR_LIBRARIES)
+    message(STATUS "Individual Lexbor components not found, searching for all .lib files...")
     file(GLOB_RECURSE ALL_LEXBOR_LIBS "${LEXBOR_DIR}/build/*.lib" "${LEXBOR_DIR}/build/*.a")
     
     if(ALL_LEXBOR_LIBS)
         message(STATUS "Using all found Lexbor libraries:")
         foreach(lib ${ALL_LEXBOR_LIBS})
-            message(STATUS "  ${lib}")
-            list(APPEND LEXBOR_LIBRARIES ${lib})
+            get_filename_component(lib_name ${lib} NAME_WE)
+            if(lib_name MATCHES "lexbor")
+                message(STATUS "  Adding: ${lib}")
+                list(APPEND LEXBOR_LIBRARIES ${lib})
+            endif()
         endforeach()
     else()
         message(FATAL_ERROR 
@@ -85,6 +89,15 @@ if(NOT LEXBOR_LIBRARIES)
             "  cmake --build build --config Release"
         )
     endif()
+else()
+    message(STATUS "Found Lexbor component libraries:")
+    foreach(lib ${LEXBOR_LIBRARIES})
+        message(STATUS "  ${lib}")
+    endforeach()
+endif()
+
+if(NOT LEXBOR_LIBRARIES)
+    message(FATAL_ERROR "No Lexbor libraries found!")
 endif()
 
 set(SOURCES
