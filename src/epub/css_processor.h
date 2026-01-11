@@ -88,6 +88,8 @@ public:
     bool parseStylesheet(const std::string& css);
     void setDocument(lxb_html_document_t* document);
     
+    void addInlineStyle(lxb_dom_element_t* element, const std::string& style_text);
+    
     CSSComputedStyle computeStyle(lxb_dom_node_t* node);
     
     TextStyle convertToTextStyle(const CSSComputedStyle& css_style);
@@ -108,6 +110,8 @@ private:
     };
     
     void parseSimpleCSS(const std::string& css);
+    void parseInlineStyle(const std::string& style_text, 
+                         std::unordered_map<std::string, PropertyValue>& properties);
     
     void applyProperty(const std::string& name, const std::string& value, 
                       CSSComputedStyle& style);
