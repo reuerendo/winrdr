@@ -11,12 +11,35 @@ endif()
 
 # Lexbor library
 set(LEXBOR_DIR "${CMAKE_SOURCE_DIR}/libs/lexbor")
-if(EXISTS "${LEXBOR_DIR}/build/Release/liblexbor_static.lib")
-    set(LEXBOR_LIBRARY "${LEXBOR_DIR}/build/Release/liblexbor_static.lib")
-elseif(EXISTS "${LEXBOR_DIR}/build/liblexbor_static.a")
-    set(LEXBOR_LIBRARY "${LEXBOR_DIR}/build/liblexbor_static.a")
-else()
-    message(FATAL_ERROR "Lexbor library not found. Please build lexbor first.")
+
+# Try to find Lexbor library in various locations
+set(LEXBOR_LIBRARY_PATHS
+    "${LEXBOR_DIR}/build/liblexbor_static.lib"
+    "${LEXBOR_DIR}/build/Release/liblexbor_static.lib"
+    "${LEXBOR_DIR}/build/Debug/liblexbor_static.lib"
+    "${LEXBOR_DIR}/build/liblexbor_static.a"
+    "${LEXBOR_DIR}/build/lib/liblexbor_static.lib"
+    "${LEXBOR_DIR}/build/lib/Release/liblexbor_static.lib"
+)
+
+set(LEXBOR_LIBRARY "")
+foreach(lib_path ${LEXBOR_LIBRARY_PATHS})
+    if(EXISTS "${lib_path}")
+        set(LEXBOR_LIBRARY "${lib_path}")
+        message(STATUS "Found Lexbor library: ${lib_path}")
+        break()
+    endif()
+endforeach()
+
+if(NOT LEXBOR_LIBRARY)
+    message(FATAL_ERROR 
+        "Lexbor library not found. Please build lexbor first:\n"
+        "  cd libs/lexbor\n"
+        "  cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON\n"
+        "  cmake --build build --config Release\n"
+        "Searched paths:\n"
+        "  ${LEXBOR_LIBRARY_PATHS}"
+    )
 endif()
 
 set(LEXBOR_INCLUDE "${LEXBOR_DIR}/source")
