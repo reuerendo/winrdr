@@ -9,9 +9,11 @@
 typedef struct lxb_css_memory lxb_css_memory_t;
 typedef struct lxb_css_parser lxb_css_parser_t;
 typedef struct lxb_css_stylesheet lxb_css_stylesheet_t;
+typedef struct lxb_css_selector lxb_css_selector_t;
 typedef struct lxb_selectors lxb_selectors_t;
 typedef struct lxb_dom_node lxb_dom_node_t;
 typedef struct lxb_dom_element lxb_dom_element_t;
+typedef struct lxb_html_document lxb_html_document_t;
 
 namespace epub {
 
@@ -87,33 +89,24 @@ public:
     
     void clear();
     
-    void parseStylesheet(const std::string& css);
+    bool loadDefaultStyles(const std::string& css_file_path);
     
-    void addInlineStyle(lxb_dom_element_t* element, const std::string& style);
+    bool parseStylesheet(const std::string& css);
+    
+    void setDocument(lxb_html_document_t* document);
     
     CSSComputedStyle computeStyle(lxb_dom_node_t* node);
     
     TextStyle convertToTextStyle(const CSSComputedStyle& css_style);
     TextAlign convertToTextAlign(const CSSComputedStyle& css_style);
     
-    size_t getRulesCount() const { return rules_.size(); }
+    size_t getRulesCount() const;
 
 private:
     struct PropertyValue {
         std::string value;
         int specificity;
     };
-    
-    struct RuleData {
-        std::string selector;
-        std::unordered_map<std::string, std::string> properties;
-        int specificity;
-    };
-    
-    void parseSimpleCSS(const std::string& css);
-    
-    void parseInlineProperties(const std::string& style_text, 
-                              std::unordered_map<std::string, PropertyValue>& properties);
     
     void applyProperty(const std::string& name, const std::string& value, 
                       CSSComputedStyle& style);
@@ -144,14 +137,14 @@ private:
     std::string trim(const std::string& str);
     std::string toLowerCase(const std::string& str);
     
-    int calculateSpecificity(const std::string& selector);
-    bool matchesSelector(lxb_dom_node_t* node, const std::string& selector);
+    int calculateSpecificity(lxb_css_selector_t* selector);
     
-    std::string getTagName(lxb_dom_node_t* node);
-    std::string getClassName(lxb_dom_node_t* node);
-    std::string getIdName(lxb_dom_node_t* node);
+    lxb_css_memory_t* css_memory_;
+    lxb_css_parser_t* css_parser_;
+    lxb_selectors_t* selectors_;
+    lxb_html_document_t* document_;
     
-    std::vector<RuleData> rules_;
+    std::vector<lxb_css_stylesheet_t*> stylesheets_;
     std::unordered_map<lxb_dom_element_t*, std::unordered_map<std::string, PropertyValue>> inline_styles_;
 };
 
