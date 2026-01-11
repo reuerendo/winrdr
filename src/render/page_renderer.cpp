@@ -380,8 +380,11 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
     const int base_font_size = static_cast<int>(font_size_ * elem.css_font_size);
     
     const int default_line_spacing = static_cast<int>(base_font_size * 0.3f);
-    const int calculated_line_spacing = elem.css_line_height > 0.0f ? 
-        static_cast<int>(base_font_size * (elem.css_line_height - 1.0f)) : 
+    
+    // CSS line-height is TOTAL height (not additional spacing)
+    // For line-height: 1.2, total = font_size * 1.2, so spacing = total - font_size
+    const int calculated_line_spacing = elem.css_line_height > 1.0f ? 
+        static_cast<int>(base_font_size * elem.css_line_height - base_font_size) : 
         default_line_spacing;
     
     const int list_indent = 30;

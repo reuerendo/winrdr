@@ -6,6 +6,8 @@
 #include "epub/epub_parser.h"
 #include "epub/reading_position.h"
 #include "render/page_renderer.h"
+#include "epub/css/css_box_model_applier.h"
+#include "epub/css/css_types.h"
 #include "utils/logger.h"
 
 epub::EpubParser g_parser;
@@ -15,6 +17,44 @@ HWND g_hwnd_main = nullptr;
 std::string g_current_file;
 HWND g_toc_window = nullptr;
 std::vector<size_t> g_toc_chapter_indices;
+
+void testCSSParsing() {
+    LOG_INFO("=== Testing CSS Box Model Parsing ===");
+    
+    epub::CSSBoxModelApplier applier;
+    epub::CSSComputedStyle style;
+    
+    // Test 1: margin-top with rem
+    applier.applyProperty("margin-top", "10.5rem", style);
+    LOG_INFO("Test 1 - margin-top: 10.5rem ->", style.margin_top, "(expected: 168)");
+    
+    // Test 2: margin with shorthand
+    style = epub::CSSComputedStyle();
+    applier.applyProperty("margin", "1.5rem", style);
+    LOG_INFO("Test 2 - margin: 1.5rem ->", 
+             "top:", style.margin_top, 
+             "right:", style.margin_right,
+             "bottom:", style.margin_bottom,
+             "left:", style.margin_left,
+             "(expected: 24 24 24 24)");
+    
+    // Test 3: padding
+    style = epub::CSSComputedStyle();
+    applier.applyProperty("padding", "0 0rem 0 0rem", style);
+    LOG_INFO("Test 3 - padding: 0 0rem 0 0rem ->",
+             "top:", style.padding_top,
+             "right:", style.padding_right,
+             "bottom:", style.padding_bottom,
+             "left:", style.padding_left,
+             "(expected: 0 0 0 0)");
+    
+    // Test 4: text-indent
+    style = epub::CSSComputedStyle();
+    applier.applyProperty("text-indent", "1.5em", style);
+    LOG_INFO("Test 4 - text-indent: 1.5em ->", style.text_indent, "(expected: 24)");
+    
+    LOG_INFO("=== CSS Parsing Tests Complete ===");
+}
 
 std::wstring GetExecutablePath() {
     wchar_t path[MAX_PATH];

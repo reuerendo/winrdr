@@ -198,6 +198,25 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
         box_model_applier_.applyProperty(prop_pair.first, prop_pair.second.value, style);
     }
     
+    // DEBUG LOGGING - Add this section
+    if (style.margin_top != 0 || style.margin_bottom != 0 || 
+        style.padding_top != 0 || style.padding_bottom != 0 || 
+        style.text_indent != 0) {
+        
+        std::string tag_name;
+        const lxb_char_t* tag_name_raw = lxb_dom_element_qualified_name(element, nullptr);
+        if (tag_name_raw) {
+            tag_name = std::string(reinterpret_cast<const char*>(tag_name_raw));
+        }
+        
+        LOG_DEBUG("CSS computed for", tag_name, 
+                  "margin-top:", style.margin_top,
+                  "margin-bottom:", style.margin_bottom,
+                  "padding-top:", style.padding_top,
+                  "padding-bottom:", style.padding_bottom,
+                  "text-indent:", style.text_indent);
+    }
+    
     return style;
 }
 
