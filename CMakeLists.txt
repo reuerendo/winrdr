@@ -9,18 +9,26 @@ if(WIN32)
     add_compile_options(/utf-8)
 endif()
 
+# Lexbor library
+set(LEXBOR_DIR "${CMAKE_SOURCE_DIR}/libs/lexbor")
+if(EXISTS "${LEXBOR_DIR}/build/Release/liblexbor_static.lib")
+    set(LEXBOR_LIBRARY "${LEXBOR_DIR}/build/Release/liblexbor_static.lib")
+elseif(EXISTS "${LEXBOR_DIR}/build/liblexbor_static.a")
+    set(LEXBOR_LIBRARY "${LEXBOR_DIR}/build/liblexbor_static.a")
+else()
+    message(FATAL_ERROR "Lexbor library not found. Please build lexbor first.")
+endif()
+
+set(LEXBOR_INCLUDE "${LEXBOR_DIR}/source")
+
 set(SOURCES
     src/main.cpp
     src/epub/epub_parser.cpp
     src/epub/zip_handler.cpp
     src/epub/image_cache.cpp
-    src/epub/html_parser.cpp
-    src/epub/css_parser.cpp
+    src/epub/html_processor.cpp
     src/epub/toc_parser.cpp
     src/epub/reading_position.cpp
-	src/epub/dom_builder.cpp
-	src/epub/style_resolver.cpp
-	src/epub/layout_engine.cpp
     src/render/page_renderer.cpp
     src/utils/logger.cpp
 )
@@ -30,14 +38,9 @@ set(HEADERS
     src/epub/zip_handler.h
     src/epub/image_cache.h
     src/epub/formatted_text.h
-    src/epub/html_parser.h
-    src/epub/css_parser.h
+    src/epub/html_processor.h
     src/epub/toc_parser.h
     src/epub/reading_position.h
-	src/epub/dom_builder.h
-	src/epub/dom_node.h
-	src/epub/style_resolver.h
-	src/epub/layout_engine.h
     src/render/page_renderer.h
     src/utils/logger.h
 )
@@ -47,6 +50,9 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
 if(WIN32)
     target_sources(${PROJECT_NAME} PRIVATE app.manifest)
 endif()
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${LEXBOR_INCLUDE})
+target_link_libraries(${PROJECT_NAME} ${LEXBOR_LIBRARY})
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} 

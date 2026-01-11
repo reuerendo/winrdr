@@ -6,7 +6,7 @@
 namespace epub {
 
 EpubParser::EpubParser() {
-    html_parser_.setImageCache(&image_cache_);
+    html_processor_.setImageCache(&image_cache_);
 }
 
 EpubParser::~EpubParser() { 
@@ -359,7 +359,7 @@ FormattedContent EpubParser::getChapterContent(size_t index) {
     
     LOG_DEBUG("Chapter HTML loaded, length:", html.length());
     
-    return html_parser_.parse(html, &zip_, content_dir_);
+    return html_processor_.parse(html, &zip_, content_dir_);
 }
 
 std::string EpubParser::getChapterText(size_t index) {

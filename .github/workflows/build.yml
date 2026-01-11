@@ -30,6 +30,20 @@ jobs:
       run: |
         Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/master/stb_image.h" -OutFile "libs/stb_image.h"
     
+    - name: Download lexbor
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/lexbor/lexbor/archive/refs/tags/v2.3.0.zip" -OutFile "lexbor.zip"
+        Expand-Archive -Path "lexbor.zip" -DestinationPath "libs"
+        Move-Item "libs/lexbor-2.3.0" "libs/lexbor"
+        Remove-Item "lexbor.zip"
+    
+    - name: Build lexbor
+      run: |
+        cd libs/lexbor
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON
+        cmake --build build --config Release
+        cd ../..
+    
     - name: Configure CMake
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
     
