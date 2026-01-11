@@ -4,6 +4,7 @@
 #include <lexbor/html/html.h>
 #include <algorithm>
 #include <cstring>
+#include <cctype>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -30,6 +31,8 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     FormattedContent output;
     
+    css_processor_.clear();
+    
     lxb_html_document_t* document = lxb_html_document_create();
     if (!document) {
         LOG_ERROR("Failed to create HTML document");
@@ -51,6 +54,10 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
         extractAndLoadImages(document, zip, base_path);
     }
     
+    if (zip) {
+        extractStylesheets(document, zip, base_path);
+    }
+    
     lxb_dom_node_t* body = lxb_dom_interface_node(lxb_html_document_body_element(document));
     if (body) {
         processNode(body, output, TextStyle::Normal, TextAlign::Left, 
@@ -65,7 +72,7 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
 }
 
 void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
-                                TextStyle current_style, TextAlign current_align,
+                                TextStyle inherited_style, TextAlign inherited_align,
                                 ElementType block_type, int list_level) {
     if (!node) return;
     
@@ -94,8 +101,8 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             TextElement elem;
             elem.type = block_type;
             elem.content = wide_text;
-            elem.style = current_style;
-            elem.align = current_align;
+            elem.style = inherited_style;
+            elem.align = inherited_align;
             elem.list_level = list_level;
             output.push_back(elem);
         }
@@ -110,6 +117,18 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         
         if (tag_name == "script" || tag_name == "style" || tag_name == "noscript") {
             return;
+        }
+        
+        CSSComputedStyle css_style = css_processor_.computeStyle(node);
+        
+        if (css_style.display == CSSDisplay::None) {
+            return;
+        }
+        
+        std::string inline_style = getAttributeValue(node, "style");
+        if (!inline_style.empty()) {
+            css_processor_.addInlineStyle(element, inline_style);
+            css_style = css_processor_.computeStyle(node);
         }
         
         if (tag_name == "br") {
@@ -141,8 +160,8 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         }
         
         ElementType new_block_type = block_type;
-        TextStyle new_style = current_style;
-        TextAlign new_align = current_align;
+        TextStyle new_style = inherited_style;
+        TextAlign new_align = inherited_align;
         int new_list_level = list_level;
         
         if (tag_name == "p") {
@@ -198,30 +217,12 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             std::string href = getAttributeValue(node, "href");
         }
         
-        std::string inline_style = getAttributeValue(node, "style");
-        if (!inline_style.empty()) {
-            if (inline_style.find("font-weight") != std::string::npos &&
-                (inline_style.find("bold") != std::string::npos || 
-                 inline_style.find("700") != std::string::npos)) {
-                new_style = new_style | TextStyle::Bold;
-            }
-            if (inline_style.find("font-style") != std::string::npos &&
-                inline_style.find("italic") != std::string::npos) {
-                new_style = new_style | TextStyle::Italic;
-            }
-            if (inline_style.find("text-decoration") != std::string::npos &&
-                inline_style.find("underline") != std::string::npos) {
-                new_style = new_style | TextStyle::Underline;
-            }
-            if (inline_style.find("text-align") != std::string::npos) {
-                if (inline_style.find("center") != std::string::npos) {
-                    new_align = TextAlign::Center;
-                } else if (inline_style.find("right") != std::string::npos) {
-                    new_align = TextAlign::Right;
-                } else if (inline_style.find("justify") != std::string::npos) {
-                    new_align = TextAlign::Justify;
-                }
-            }
+        TextStyle css_text_style = css_processor_.convertToTextStyle(css_style);
+        new_style = new_style | css_text_style;
+        
+        TextAlign css_text_align = css_processor_.convertToTextAlign(css_style);
+        if (css_text_align != TextAlign::Left || tag_name == "p" || tag_name == "div") {
+            new_align = css_text_align;
         }
         
         lxb_dom_node_t* child = lxb_dom_node_first_child(node);
@@ -247,7 +248,7 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
 process_children:
     lxb_dom_node_t* child = lxb_dom_node_first_child(node);
     while (child) {
-        processNode(child, output, current_style, current_align, block_type, list_level);
+        processNode(child, output, inherited_style, inherited_align, block_type, list_level);
         child = lxb_dom_node_next(child);
     }
 }
@@ -310,44 +311,87 @@ void HTMLProcessor::extractAndLoadImages(lxb_html_document_t* document, ZipHandl
     lxb_dom_collection_destroy(collection, true);
 }
 
-void HTMLProcessor::extractStylesheets(lxb_html_document_t* document,
-                                      std::vector<std::string>& stylesheets) {
-    lxb_dom_collection_t* collection = lxb_dom_collection_create(&document->dom_document);
-    if (!collection) return;
+void HTMLProcessor::extractStylesheets(lxb_html_document_t* document, ZipHandler* zip,
+                                      const std::string& base_path) {
+    lxb_dom_collection_t* style_collection = lxb_dom_collection_create(&document->dom_document);
+    if (!style_collection) return;
     
-    lxb_status_t status = lxb_dom_collection_init(collection, 16);
+    lxb_status_t status = lxb_dom_collection_init(style_collection, 16);
     if (status != LXB_STATUS_OK) {
-        lxb_dom_collection_destroy(collection, true);
+        lxb_dom_collection_destroy(style_collection, true);
         return;
     }
     
     lxb_html_head_element_t* head_element = lxb_html_document_head_element(document);
-    if (!head_element) {
-        lxb_dom_collection_destroy(collection, true);
-        return;
-    }
-    
-    lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
-    
-    status = lxb_dom_elements_by_tag_name(
-        head,
-        collection,
-        reinterpret_cast<const lxb_char_t*>("style"),
-        5
-    );
-    
-    if (status == LXB_STATUS_OK) {
-        for (size_t i = 0; i < lxb_dom_collection_length(collection); i++) {
-            lxb_dom_element_t* element = lxb_dom_collection_element(collection, i);
-            std::string css_text = getNodeText(lxb_dom_interface_node(element));
-            if (!css_text.empty()) {
-                stylesheets.push_back(css_text);
-                LOG_DEBUG("Extracted stylesheet, length:", css_text.length());
+    if (head_element) {
+        lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
+        
+        status = lxb_dom_elements_by_tag_name(
+            head,
+            style_collection,
+            reinterpret_cast<const lxb_char_t*>("style"),
+            5
+        );
+        
+        if (status == LXB_STATUS_OK) {
+            for (size_t i = 0; i < lxb_dom_collection_length(style_collection); i++) {
+                lxb_dom_element_t* element = lxb_dom_collection_element(style_collection, i);
+                std::string css_text = getNodeText(lxb_dom_interface_node(element));
+                if (!css_text.empty()) {
+                    LOG_DEBUG("Parsing inline stylesheet, length:", css_text.length());
+                    css_processor_.parseStylesheet(css_text);
+                }
             }
         }
     }
     
-    lxb_dom_collection_destroy(collection, true);
+    lxb_dom_collection_destroy(style_collection, true);
+    
+    lxb_dom_collection_t* link_collection = lxb_dom_collection_create(&document->dom_document);
+    if (!link_collection) return;
+    
+    status = lxb_dom_collection_init(link_collection, 16);
+    if (status != LXB_STATUS_OK) {
+        lxb_dom_collection_destroy(link_collection, true);
+        return;
+    }
+    
+    if (head_element) {
+        lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
+        
+        status = lxb_dom_elements_by_tag_name(
+            head,
+            link_collection,
+            reinterpret_cast<const lxb_char_t*>("link"),
+            4
+        );
+        
+        if (status == LXB_STATUS_OK) {
+            for (size_t i = 0; i < lxb_dom_collection_length(link_collection); i++) {
+                lxb_dom_element_t* element = lxb_dom_collection_element(link_collection, i);
+                lxb_dom_node_t* node = lxb_dom_interface_node(element);
+                
+                std::string rel = getAttributeValue(node, "rel");
+                if (rel != "stylesheet") continue;
+                
+                std::string href = getAttributeValue(node, "href");
+                if (href.empty()) continue;
+                
+                std::string css_path = normalizePath(base_path, href);
+                LOG_DEBUG("Loading external stylesheet:", css_path);
+                
+                std::string css_content = zip->extractTextFile(css_path);
+                if (!css_content.empty()) {
+                    LOG_DEBUG("Parsing external stylesheet, length:", css_content.length());
+                    css_processor_.parseStylesheet(css_content);
+                } else {
+                    LOG_WARNING("Failed to load external stylesheet:", css_path);
+                }
+            }
+        }
+    }
+    
+    lxb_dom_collection_destroy(link_collection, true);
 }
 
 std::string HTMLProcessor::getNodeText(lxb_dom_node_t* node) {
@@ -414,38 +458,34 @@ std::string HTMLProcessor::normalizePath(const std::string& base, const std::str
     return path;
 }
 
-ComputedStyle HTMLProcessor::computeStyle(lxb_dom_node_t* node, lxb_selectors_t* selectors,
-                                         const std::vector<lxb_css_stylesheet_t*>& stylesheets) {
-    ComputedStyle style;
-    return style;
-}
-
-TextStyle HTMLProcessor::applyComputedStyle(const ComputedStyle& computed, TextStyle base_style) {
-    TextStyle result = base_style;
+std::wstring HTMLProcessor::applyTextTransform(const std::wstring& text, CSSTextTransform transform) {
+    std::wstring result = text;
     
-    if (computed.bold) result = result | TextStyle::Bold;
-    if (computed.italic) result = result | TextStyle::Italic;
-    if (computed.underline) result = result | TextStyle::Underline;
-    if (computed.strikethrough) result = result | TextStyle::Strikethrough;
-    if (computed.monospace) result = result | TextStyle::Monospace;
-    
-    if (computed.vertical_align == ComputedStyle::VerticalAlign::Sub) {
-        result = result | TextStyle::Subscript;
-    } else if (computed.vertical_align == ComputedStyle::VerticalAlign::Super) {
-        result = result | TextStyle::Superscript;
+    switch (transform) {
+        case CSSTextTransform::Uppercase:
+            std::transform(result.begin(), result.end(), result.begin(), ::towupper);
+            break;
+        case CSSTextTransform::Lowercase:
+            std::transform(result.begin(), result.end(), result.begin(), ::towlower);
+            break;
+        case CSSTextTransform::Capitalize:
+            if (!result.empty()) {
+                bool capitalize_next = true;
+                for (size_t i = 0; i < result.length(); i++) {
+                    if (capitalize_next && std::iswalpha(result[i])) {
+                        result[i] = std::towupper(result[i]);
+                        capitalize_next = false;
+                    } else if (std::iswspace(result[i])) {
+                        capitalize_next = true;
+                    }
+                }
+            }
+            break;
+        default:
+            break;
     }
     
     return result;
-}
-
-TextAlign HTMLProcessor::getTextAlign(const ComputedStyle& computed) {
-    switch (computed.text_align) {
-        case ComputedStyle::TextAlign::Left: return TextAlign::Left;
-        case ComputedStyle::TextAlign::Right: return TextAlign::Right;
-        case ComputedStyle::TextAlign::Center: return TextAlign::Center;
-        case ComputedStyle::TextAlign::Justify: return TextAlign::Justify;
-    }
-    return TextAlign::Left;
 }
 
 } // namespace epub

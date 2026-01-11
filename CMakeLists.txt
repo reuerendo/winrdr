@@ -4,11 +4,6 @@ project(EpubReader)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# === FIX FOR LINKER ERRORS ===
-# 1. LXB_STATIC: Standard flag for static Lexbor.
-# 2. LEXBOR_STATIC: Alternative flag often required by headers.
-# 3. LXB_API=: Force LXB_API to be empty. This prevents '__declspec(dllimport)' 
-#    from being generated even if the other flags are ignored.
 add_definitions(-DLXB_STATIC -DLEXBOR_STATIC -DLXB_API=)
 
 if(WIN32)
@@ -37,7 +32,6 @@ set(LEXBOR_LIBRARIES "")
 
 foreach(lib ${ALL_LIBS})
     get_filename_component(lib_name ${lib} NAME_WE)
-    # Filter for lexbor libs specifically
     if(lib_name MATCHES "lexbor")
         list(APPEND LEXBOR_LIBRARIES ${lib})
     endif()
@@ -65,6 +59,7 @@ set(SOURCES
     src/epub/zip_handler.cpp
     src/epub/image_cache.cpp
     src/epub/html_processor.cpp
+    src/epub/css_processor.cpp
     src/epub/toc_parser.cpp
     src/epub/reading_position.cpp
     src/render/page_renderer.cpp
@@ -77,6 +72,7 @@ set(HEADERS
     src/epub/image_cache.h
     src/epub/formatted_text.h
     src/epub/html_processor.h
+    src/epub/css_processor.h
     src/epub/toc_parser.h
     src/epub/reading_position.h
     src/render/page_renderer.h
