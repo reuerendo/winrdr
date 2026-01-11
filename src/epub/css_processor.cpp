@@ -14,6 +14,7 @@ namespace epub {
 CSSProcessor::CSSProcessor() 
     : selectors_(nullptr)
     , document_(nullptr)
+    , debug_enabled_(false)
 {
     selectors_ = lxb_selectors_create();
     lxb_selectors_init(selectors_);
@@ -30,6 +31,7 @@ CSSProcessor::~CSSProcessor() {
 void CSSProcessor::clear() {
     rules_.clear();
     inline_styles_.clear();
+    debug_logger_.clear();
 }
 
 void CSSProcessor::addInlineStyle(lxb_dom_element_t* element, const std::string& style_text) {
@@ -168,9 +170,14 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
     lxb_dom_element_t* element = lxb_dom_interface_element(node);
     
     std::unordered_map<std::string, PropertyValue> matched_properties;
+    std::vector<std::string> matched_selectors;
     
     for (const RuleData& rule : rules_) {
         if (selector_matcher_.matchesSelector(node, rule.selector)) {
+            if (debug_enabled_) {
+                matched_selectors.push_back(rule.selector);
+            }
+            
             for (const auto& prop_pair : rule.properties) {
                 const std::string& prop_name = prop_pair.first;
                 const std::string& prop_value = prop_pair.second;
@@ -198,26 +205,26 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
         box_model_applier_.applyProperty(prop_pair.first, prop_pair.second.value, style);
     }
     
-    // DEBUG LOGGING - Add this section
-    if (style.margin_top != 0 || style.margin_bottom != 0 || 
-        style.padding_top != 0 || style.padding_bottom != 0 || 
-        style.text_indent != 0) {
-        
-        std::string tag_name;
-        const lxb_char_t* tag_name_raw = lxb_dom_element_qualified_name(element, nullptr);
-        if (tag_name_raw) {
-            tag_name = std::string(reinterpret_cast<const char*>(tag_name_raw));
+    if (debug_enabled_) {
+        int depth = 0;
+        lxb_dom_node_t* parent = lxb_dom_node_parent(node);
+        while (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+            depth++;
+            parent = lxb_dom_node_parent(parent);
         }
         
-        LOG_DEBUG("CSS computed for", tag_name, 
-                  "margin-top:", style.margin_top,
-                  "margin-bottom:", style.margin_bottom,
-                  "padding-top:", style.padding_top,
-                  "padding-bottom:", style.padding_bottom,
-                  "text-indent:", style.text_indent);
+        debug_logger_.logElement(node, matched_selectors, style, depth);
     }
     
     return style;
+}
+
+void CSSProcessor::saveDebugReport(const std::string& output_path) {
+    debug_logger_.printReport(output_path);
+}
+
+void CSSProcessor::printDebugReportToConsole() {
+    debug_logger_.printReportToConsole();
 }
 
 std::string CSSProcessor::trim(const std::string& str) {
