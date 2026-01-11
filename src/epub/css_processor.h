@@ -95,6 +95,8 @@ public:
     
     TextStyle convertToTextStyle(const CSSComputedStyle& css_style);
     TextAlign convertToTextAlign(const CSSComputedStyle& css_style);
+    
+    size_t getRulesCount() const { return rules_.size(); }
 
 private:
     struct PropertyValue {

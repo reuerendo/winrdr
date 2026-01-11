@@ -34,6 +34,7 @@ void CSSProcessor::parseStylesheet(const std::string& css) {
 
 void CSSProcessor::parseSimpleCSS(const std::string& css) {
     size_t pos = 0;
+    int rules_parsed = 0;
     
     while (pos < css.length()) {
         size_t brace_open = css.find('{', pos);
@@ -74,11 +75,14 @@ void CSSProcessor::parseSimpleCSS(const std::string& css) {
             
             if (!rule.properties.empty()) {
                 rules_.push_back(rule);
+                rules_parsed++;
             }
         }
         
         pos = brace_close + 1;
     }
+    
+    LOG_DEBUG("Parsed CSS rules:", rules_parsed);
 }
 
 void CSSProcessor::addInlineStyle(lxb_dom_element_t* element, const std::string& style) {
@@ -122,8 +126,10 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
     
     std::unordered_map<std::string, PropertyValue> matched_properties;
     
+    int rules_matched = 0;
     for (const RuleData& rule : rules_) {
         if (matchesSelector(node, rule.selector)) {
+            rules_matched++;
             for (const auto& prop_pair : rule.properties) {
                 const std::string& prop_name = prop_pair.first;
                 const std::string& prop_value = prop_pair.second;

@@ -59,6 +59,8 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
         extractStylesheets(document, zip, base_path);
     }
     
+    LOG_DEBUG("CSS processor has", css_processor_.getRulesCount(), "rules loaded");
+    
     lxb_dom_node_t* body = lxb_dom_interface_node(lxb_html_document_body_element(document));
     if (body) {
         processNode(body, output, TextStyle::Normal, TextAlign::Left, 
@@ -99,11 +101,30 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
 #endif
         
         if (!wide_text.empty()) {
+            lxb_dom_node_t* parent = lxb_dom_node_parent(node);
+            CSSComputedStyle parent_css;
+            if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+                parent_css = css_processor_.computeStyle(parent);
+            }
+            
+            TextStyle final_style = inherited_style;
+            TextAlign final_align = inherited_align;
+            
+            if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+                TextStyle css_style = css_processor_.convertToTextStyle(parent_css);
+                final_style = final_style | css_style;
+                
+                TextAlign css_align = css_processor_.convertToTextAlign(parent_css);
+                if (css_align != TextAlign::Left) {
+                    final_align = css_align;
+                }
+            }
+            
             TextElement elem;
             elem.type = block_type;
             elem.content = wide_text;
-            elem.style = inherited_style;
-            elem.align = inherited_align;
+            elem.style = final_style;
+            elem.align = final_align;
             elem.list_level = list_level;
             output.push_back(elem);
         }
@@ -382,6 +403,15 @@ void HTMLProcessor::extractStylesheets(lxb_html_document_t* document, ZipHandler
                 LOG_DEBUG("Loading external stylesheet:", css_path);
                 
                 std::string css_content = zip->extractTextFile(css_path);
+                if (css_content.empty()) {
+                    std::string fallback_path = href;
+                    while (fallback_path.find("../") == 0) {
+                        fallback_path = fallback_path.substr(3);
+                    }
+                    LOG_DEBUG("Trying fallback path:", fallback_path);
+                    css_content = zip->extractTextFile(fallback_path);
+                }
+                
                 if (!css_content.empty()) {
                     LOG_DEBUG("Parsing external stylesheet, length:", css_content.length());
                     css_processor_.parseStylesheet(css_content);
