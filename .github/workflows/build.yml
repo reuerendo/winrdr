@@ -50,17 +50,13 @@ jobs:
         }
         cd ../..
     
-    - name: List Lexbor build directory
-      run: |
-        Write-Host "Lexbor build directory contents:"
-        Get-ChildItem -Path libs/lexbor/build -Recurse -Filter "*.lib" | ForEach-Object { Write-Host "  $($_.FullName)" }
-    
     - name: Clean build directory
       run: |
         if (Test-Path build) { Remove-Item -Recurse -Force build }
     
     - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: cmake --build build --config Release
