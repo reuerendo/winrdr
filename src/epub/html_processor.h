@@ -6,7 +6,6 @@
 #include <vector>
 #include <memory>
 
-// Forward declarations for lexbor
 typedef struct lxb_html_document lxb_html_document_t;
 typedef struct lxb_dom_node lxb_dom_node_t;
 typedef struct lxb_css_stylesheet lxb_css_stylesheet_t;

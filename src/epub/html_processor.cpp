@@ -2,8 +2,6 @@
 #include "zip_handler.h"
 #include "../utils/logger.h"
 #include <lexbor/html/html.h>
-#include <lexbor/css/css.h>
-#include <lexbor/selectors/selectors.h>
 #include <algorithm>
 #include <cstring>
 
@@ -32,7 +30,6 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     FormattedContent output;
     
-    // Create HTML document
     lxb_html_document_t* document = lxb_html_document_create();
     if (!document) {
         LOG_ERROR("Failed to create HTML document");
@@ -50,69 +47,14 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     LOG_DEBUG("HTML document parsed successfully");
     
-    // Extract stylesheets
-    std::vector<std::string> stylesheet_texts;
-    extractStylesheets(document, stylesheet_texts);
-    
-    // Parse CSS stylesheets
-    std::vector<lxb_css_stylesheet_t*> stylesheets;
-    lxb_css_memory_t* css_memory = lxb_css_memory_create();
-    lxb_css_parser_t* css_parser = lxb_css_parser_create();
-    
-    if (css_memory && css_parser) {
-        status = lxb_css_parser_init(css_parser, css_memory);
-        if (status == LXB_STATUS_OK) {
-            for (const std::string& css_text : stylesheet_texts) {
-                lxb_css_stylesheet_t* stylesheet = lxb_css_stylesheet_create(css_memory);
-                if (stylesheet) {
-                    status = lxb_css_stylesheet_parse(stylesheet, css_parser,
-                        reinterpret_cast<const lxb_char_t*>(css_text.c_str()),
-                        css_text.length());
-                    
-                    if (status == LXB_STATUS_OK) {
-                        stylesheets.push_back(stylesheet);
-                        LOG_DEBUG("CSS stylesheet parsed successfully");
-                    } else {
-                        lxb_css_stylesheet_destroy(stylesheet, true);
-                    }
-                }
-            }
-        }
-    }
-    
-    // Create selector engine
-    lxb_selectors_t* selectors = lxb_selectors_create();
-    if (selectors) {
-        lxb_selectors_init(selectors);
-    }
-    
-    // Load images
     if (zip && image_cache_) {
         extractAndLoadImages(document, zip, base_path);
     }
     
-    // Process DOM tree
     lxb_dom_node_t* body = lxb_dom_interface_node(lxb_html_document_body_element(document));
     if (body) {
         processNode(body, output, TextStyle::Normal, TextAlign::Left, 
                    ElementType::Text, 0);
-    }
-    
-    // Cleanup
-    if (selectors) {
-        lxb_selectors_destroy(selectors, true);
-    }
-    
-    for (lxb_css_stylesheet_t* stylesheet : stylesheets) {
-        lxb_css_stylesheet_destroy(stylesheet, true);
-    }
-    
-    if (css_parser) {
-        lxb_css_parser_destroy(css_parser, true);
-    }
-    
-    if (css_memory) {
-        lxb_css_memory_destroy(css_memory, true);
     }
     
     lxb_html_document_destroy(document);
@@ -127,16 +69,14 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
                                 ElementType block_type, int list_level) {
     if (!node) return;
     
-    lxb_dom_node_type_t node_type = lxb_dom_node_type(node);
+    lxb_dom_node_type_t node_type = node->type;
     
-    // Text node
     if (node_type == LXB_DOM_NODE_TYPE_TEXT) {
         std::string text = getNodeText(node);
         if (text.empty()) {
             goto process_children;
         }
         
-        // Convert UTF-8 to wide string
         std::wstring wide_text;
 #ifdef _WIN32
         int size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
@@ -163,18 +103,15 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         goto process_children;
     }
     
-    // Element node
     if (node_type == LXB_DOM_NODE_TYPE_ELEMENT) {
         lxb_dom_element_t* element = lxb_dom_interface_element(node);
         const lxb_char_t* tag_name_raw = lxb_dom_element_qualified_name(element, nullptr);
         std::string tag_name(reinterpret_cast<const char*>(tag_name_raw));
         
-        // Skip script and style elements
         if (tag_name == "script" || tag_name == "style" || tag_name == "noscript") {
             return;
         }
         
-        // Handle special elements
         if (tag_name == "br") {
             TextElement elem;
             elem.type = ElementType::LineBreak;
@@ -203,13 +140,11 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             return;
         }
         
-        // Determine element type and styling
         ElementType new_block_type = block_type;
         TextStyle new_style = current_style;
         TextAlign new_align = current_align;
         int new_list_level = list_level;
         
-        // Block elements
         if (tag_name == "p") {
             new_block_type = ElementType::Paragraph;
         } else if (tag_name == "h1") {
@@ -241,7 +176,6 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             new_list_level++;
         }
         
-        // Inline styling
         if (tag_name == "b" || tag_name == "strong") {
             new_style = new_style | TextStyle::Bold;
         } else if (tag_name == "i" || tag_name == "em" || tag_name == "cite") {
@@ -262,13 +196,10 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             new_block_type = ElementType::Link;
             new_style = new_style | TextStyle::Underline;
             std::string href = getAttributeValue(node, "href");
-            // Store href for later use if needed
         }
         
-        // Process inline style attribute
         std::string inline_style = getAttributeValue(node, "style");
         if (!inline_style.empty()) {
-            // Simple inline style parsing
             if (inline_style.find("font-weight") != std::string::npos &&
                 (inline_style.find("bold") != std::string::npos || 
                  inline_style.find("700") != std::string::npos)) {
@@ -293,14 +224,12 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             }
         }
         
-        // Process children
         lxb_dom_node_t* child = lxb_dom_node_first_child(node);
         while (child) {
             processNode(child, output, new_style, new_align, new_block_type, new_list_level);
             child = lxb_dom_node_next(child);
         }
         
-        // Add spacing after block elements
         if (tag_name == "p" || tag_name == "div" || tag_name == "blockquote" ||
             tag_name == "h1" || tag_name == "h2" || tag_name == "h3" ||
             tag_name == "h4" || tag_name == "h5" || tag_name == "h6" ||
@@ -316,7 +245,6 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
     }
     
 process_children:
-    // Process child nodes
     lxb_dom_node_t* child = lxb_dom_node_first_child(node);
     while (child) {
         processNode(child, output, current_style, current_align, block_type, list_level);
@@ -329,14 +257,16 @@ void HTMLProcessor::extractAndLoadImages(lxb_html_document_t* document, ZipHandl
     lxb_dom_collection_t* collection = lxb_dom_collection_make(&document->dom_document, 128);
     if (!collection) return;
     
-    lxb_dom_element_t* body = lxb_html_document_body_element(document);
-    if (!body) {
+    lxb_html_body_element_t* body_element = lxb_html_document_body_element(document);
+    if (!body_element) {
         lxb_dom_collection_destroy(collection, true);
         return;
     }
     
+    lxb_dom_element_t* body = lxb_dom_interface_element(body_element);
+    
     lxb_status_t status = lxb_dom_elements_by_tag_name(
-        lxb_dom_interface_element(body),
+        body,
         collection,
         reinterpret_cast<const lxb_char_t*>("img"),
         3
@@ -379,14 +309,16 @@ void HTMLProcessor::extractStylesheets(lxb_html_document_t* document,
     lxb_dom_collection_t* collection = lxb_dom_collection_make(&document->dom_document, 16);
     if (!collection) return;
     
-    lxb_dom_element_t* head = lxb_html_document_head_element(document);
-    if (!head) {
+    lxb_html_head_element_t* head_element = lxb_html_document_head_element(document);
+    if (!head_element) {
         lxb_dom_collection_destroy(collection, true);
         return;
     }
     
+    lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
+    
     lxb_status_t status = lxb_dom_elements_by_tag_name(
-        lxb_dom_interface_element(head),
+        head,
         collection,
         reinterpret_cast<const lxb_char_t*>("style"),
         5
@@ -409,7 +341,7 @@ void HTMLProcessor::extractStylesheets(lxb_html_document_t* document,
 std::string HTMLProcessor::getNodeText(lxb_dom_node_t* node) {
     if (!node) return "";
     
-    lxb_dom_node_type_t node_type = lxb_dom_node_type(node);
+    lxb_dom_node_type_t node_type = node->type;
     
     if (node_type == LXB_DOM_NODE_TYPE_TEXT) {
         lxb_dom_text_t* text_node = lxb_dom_interface_text(node);
@@ -432,7 +364,7 @@ std::string HTMLProcessor::getNodeText(lxb_dom_node_t* node) {
 }
 
 std::string HTMLProcessor::getAttributeValue(lxb_dom_node_t* node, const char* attr_name) {
-    if (!node || lxb_dom_node_type(node) != LXB_DOM_NODE_TYPE_ELEMENT) {
+    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
         return "";
     }
     
@@ -473,10 +405,6 @@ std::string HTMLProcessor::normalizePath(const std::string& base, const std::str
 ComputedStyle HTMLProcessor::computeStyle(lxb_dom_node_t* node, lxb_selectors_t* selectors,
                                          const std::vector<lxb_css_stylesheet_t*>& stylesheets) {
     ComputedStyle style;
-    
-    // This is a simplified implementation
-    // Full CSS cascade implementation would be much more complex
-    
     return style;
 }
 
