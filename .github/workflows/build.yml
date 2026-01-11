@@ -42,7 +42,7 @@ jobs:
     - name: Build lexbor
       run: |
         cd libs/lexbor
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON -DLEXBOR_BUILD_SEPARATELY=OFF
         cmake --build build --config Release
         Write-Host "`n=== All .lib files in lexbor build ==="
         Get-ChildItem -Path build -Recurse -Filter "*.lib" | ForEach-Object {
