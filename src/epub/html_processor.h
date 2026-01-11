@@ -23,6 +23,9 @@ public:
                           const std::string& base_path);
     
     void setImageCache(ImageCache* cache);
+    
+    CSSProcessor& getCSSProcessor() { return css_processor_; }
+    const CSSProcessor& getCSSProcessor() const { return css_processor_; }
 
 private:
     void processNode(lxb_dom_node_t* node, FormattedContent& output, 

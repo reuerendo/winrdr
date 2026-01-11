@@ -16,6 +16,17 @@ std::string g_current_file;
 HWND g_toc_window = nullptr;
 std::vector<size_t> g_toc_chapter_indices;
 
+std::wstring GetExecutablePath() {
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(NULL, path, MAX_PATH);
+    std::wstring ws_path(path);
+    size_t last_slash = ws_path.find_last_of(L"\\/");
+    if (last_slash != std::wstring::npos) {
+        return ws_path.substr(0, last_slash + 1);
+    }
+    return L"";
+}
+
 std::wstring utf8_to_wstring(const std::string& str) {
     if (str.empty()) return std::wstring();
     int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
@@ -235,6 +246,11 @@ void OpenFile() {
         if (g_parser.open(path)) {
             LOG_INFO("EPUB file opened successfully");
             
+            // Load default EPUB styles
+            std::wstring exe_path = GetExecutablePath();
+            std::string default_css_path = wstring_to_utf8(exe_path + L"epub.css");
+            g_parser.getHTMLProcessor().getCSSProcessor().loadDefaultStyles(default_css_path);
+            
             g_current_file = path;
             g_renderer.setImageCache(&g_parser.getImageCache());
             
@@ -247,7 +263,7 @@ void OpenFile() {
                 InvalidateRect(g_hwnd_main, nullptr, TRUE);
                 UpdateWindow(g_hwnd_main);
                 UpdateTitle();
-                SavePosition();  // Save after restoring position
+                SavePosition();
                 LOG_INFO("Restored position:", pos.chapter_index, pos.page_index);
             } else {
                 LoadChapter(0);

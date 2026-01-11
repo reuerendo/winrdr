@@ -102,19 +102,35 @@ HFONT PageRenderer::createFont(int size, bool bold, bool italic,
     );
 }
 
-HFONT PageRenderer::selectFontForStyle(epub::TextStyle style) {
+HFONT PageRenderer::selectFontForStyle(epub::TextStyle style, float size_multiplier) {
     const bool is_bold = epub::hasStyle(style, epub::TextStyle::Bold);
     const bool is_italic = epub::hasStyle(style, epub::TextStyle::Italic);
     const bool is_mono = epub::hasStyle(style, epub::TextStyle::Monospace);
     
+    int actual_size = static_cast<int>(font_size_ * size_multiplier);
+    
     if (is_mono) {
-        return is_bold ? mono_bold_font_ : mono_font_;
+        return CreateFontW(
+            actual_size, 0, 0, 0,
+            is_bold ? FW_BOLD : FW_NORMAL,
+            is_italic ? TRUE : FALSE,
+            FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
+        );
     }
     
-    if (is_bold && is_italic) return bold_italic_font_;
-    if (is_bold) return bold_font_;
-    if (is_italic) return italic_font_;
-    return normal_font_;
+    if (is_bold && is_italic) {
+        return createFont(actual_size, true, true, false, false);
+    }
+    if (is_bold) {
+        return createFont(actual_size, true, false, false, false);
+    }
+    if (is_italic) {
+        return createFont(actual_size, false, true, false, false);
+    }
+    
+    return createFont(actual_size, false, false, false, false);
 }
 
 void PageRenderer::calculatePages(HDC hdc) {
@@ -158,18 +174,23 @@ void PageRenderer::calculatePages(HDC hdc) {
 }
 
 int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, int width) {
-    const int LINE_SPACING = 5;
-    const int PARAGRAPH_SPACING = 15;
-    const int HEADING_SPACING = 20;
-    const int LIST_INDENT = 30;
-    const int HR_HEIGHT = 10;
+    const int base_font_size = static_cast<int>(font_size_ * elem.css_font_size);
+    const int line_spacing = static_cast<int>(base_font_size * elem.css_line_height * 0.3f);
+    const int paragraph_spacing = static_cast<int>(base_font_size * elem.css_line_height * 0.5f);
+    const int heading_spacing = static_cast<int>(base_font_size * elem.css_line_height * 0.8f);
+    const int list_indent = 30;
+    const int hr_height = 10;
+    
+    int total_height = elem.css_margin_top;
     
     switch (elem.type) {
         case epub::ElementType::LineBreak:
-            return font_size_;
+            total_height += base_font_size;
+            break;
             
         case epub::ElementType::HorizontalRule:
-            return HR_HEIGHT + PARAGRAPH_SPACING;
+            total_height += hr_height + paragraph_spacing;
+            break;
             
         case epub::ElementType::Image: {
             if (image_cache_) {
@@ -177,10 +198,10 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
                 if (img) {
                     float scale = static_cast<float>(width) / img->width;
                     if (scale > 1.0f) scale = 1.0f;
-                    return static_cast<int>(img->height * scale) + PARAGRAPH_SPACING;
+                    total_height += static_cast<int>(img->height * scale) + paragraph_spacing;
                 }
             }
-            return PARAGRAPH_SPACING;
+            break;
         }
         
         case epub::ElementType::Heading1:
@@ -189,7 +210,7 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
         case epub::ElementType::Heading4:
         case epub::ElementType::Heading5:
         case epub::ElementType::Heading6: {
-            int heading_size = font_size_ + 8;
+            int heading_size = static_cast<int>((base_font_size + 8) * elem.css_font_size);
             HFONT heading_font = createFont(heading_size, true, false, false, false);
             HFONT old_font = (HFONT)SelectObject(hdc, heading_font);
             
@@ -200,7 +221,8 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
             SelectObject(hdc, old_font);
             DeleteObject(heading_font);
             
-            return rect.bottom + HEADING_SPACING;
+            total_height += rect.bottom + heading_spacing;
+            break;
         }
         
         case epub::ElementType::CodeBlock: {
@@ -209,70 +231,70 @@ int PageRenderer::measureElementHeight(HDC hdc, const epub::TextElement& elem, i
             DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
                      DT_CALCRECT | DT_NOPREFIX);
             SelectObject(hdc, old_font);
-            return rect.bottom + PARAGRAPH_SPACING;
+            total_height += rect.bottom + paragraph_spacing;
+            break;
         }
         
         case epub::ElementType::ListItem: {
-            int list_width = width - (LIST_INDENT * elem.list_level);
+            int list_width = width - (list_indent * elem.list_level) - elem.css_margin_left;
             RECT rect = {0, 0, list_width, 0};
             
-            HFONT font = selectFontForStyle(elem.style);
+            HFONT font = selectFontForStyle(elem.style, elem.css_font_size);
             HFONT old_font = (HFONT)SelectObject(hdc, font);
             DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
                      DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
             SelectObject(hdc, old_font);
+            DeleteObject(font);
             
-            return rect.bottom + LINE_SPACING;
+            total_height += rect.bottom + line_spacing;
+            break;
         }
         
         case epub::ElementType::Quote:
         case epub::ElementType::Paragraph:
         case epub::ElementType::Text:
         case epub::ElementType::Link: {
-            RECT rect = {0, 0, width, 0};
+            int text_width = width - elem.css_margin_left - elem.css_margin_right;
+            RECT rect = {0, 0, text_width, 0};
             
-            HFONT font = selectFontForStyle(elem.style);
+            HFONT font = selectFontForStyle(elem.style, elem.css_font_size);
             
             if (epub::hasStyle(elem.style, epub::TextStyle::Small)) {
-                int small_size = static_cast<int>(font_size_ * 0.85);
+                int small_size = static_cast<int>(base_font_size * 0.85);
                 const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
                 const bool is_italic = epub::hasStyle(elem.style, epub::TextStyle::Italic);
                 const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
                 
+                DeleteObject(font);
+                
                 if (is_mono) {
-                    HFONT small_font = CreateFontW(
+                    font = CreateFontW(
                         small_size, 0, 0, 0, is_bold ? FW_BOLD : FW_NORMAL, 
                         is_italic ? TRUE : FALSE, FALSE, FALSE,
                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                         DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
                     );
-                    HFONT old_font = (HFONT)SelectObject(hdc, small_font);
-                    DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                             DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-                    SelectObject(hdc, old_font);
-                    DeleteObject(small_font);
                 } else {
-                    HFONT small_font = createFont(small_size, is_bold, is_italic, false, false);
-                    HFONT old_font = (HFONT)SelectObject(hdc, small_font);
-                    DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                             DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-                    SelectObject(hdc, old_font);
-                    DeleteObject(small_font);
+                    font = createFont(small_size, is_bold, is_italic, false, false);
                 }
-            } else {
-                HFONT old_font = (HFONT)SelectObject(hdc, font);
-                DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
-                         DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-                SelectObject(hdc, old_font);
             }
             
+            HFONT old_font = (HFONT)SelectObject(hdc, font);
+            DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
+                     DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+            SelectObject(hdc, old_font);
+            DeleteObject(font);
+            
             int spacing = (elem.type == epub::ElementType::Paragraph) ? 
-                         PARAGRAPH_SPACING : LINE_SPACING;
-            return rect.bottom + spacing;
+                         paragraph_spacing : line_spacing;
+            total_height += rect.bottom + spacing;
+            break;
         }
     }
     
-    return LINE_SPACING;
+    total_height += elem.css_margin_bottom;
+    
+    return total_height;
 }
 
 bool PageRenderer::nextPage() {
@@ -344,20 +366,25 @@ void PageRenderer::render(HDC hdc) {
 
 void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem, 
                                 RECT& rect, int& y_pos) {
-    const int LINE_SPACING = 5;
-    const int PARAGRAPH_SPACING = 15;
-    const int HEADING_SPACING = 20;
-    const int LIST_INDENT = 30;
-    const int QUOTE_INDENT = 40;
-    const int HR_HEIGHT = 2;
+    const int base_font_size = static_cast<int>(font_size_ * elem.css_font_size);
+    const int line_spacing = static_cast<int>(base_font_size * elem.css_line_height * 0.3f);
+    const int paragraph_spacing = static_cast<int>(base_font_size * elem.css_line_height * 0.5f);
+    const int heading_spacing = static_cast<int>(base_font_size * elem.css_line_height * 0.8f);
+    const int list_indent = 30;
+    const int quote_indent = 40;
+    const int hr_height = 2;
+    
+    y_pos += elem.css_margin_top;
+    rect.left += elem.css_margin_left;
+    rect.right -= elem.css_margin_right;
     
     switch (elem.type) {
         case epub::ElementType::LineBreak:
-            y_pos += font_size_;
+            y_pos += base_font_size;
             break;
             
         case epub::ElementType::HorizontalRule: {
-            HPEN pen = CreatePen(PS_SOLID, HR_HEIGHT, RGB(128, 128, 128));
+            HPEN pen = CreatePen(PS_SOLID, hr_height, RGB(128, 128, 128));
             HPEN old_pen = (HPEN)SelectObject(hdc, pen);
             
             MoveToEx(hdc, rect.left + 20, y_pos + 5, NULL);
@@ -366,13 +393,13 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             SelectObject(hdc, old_pen);
             DeleteObject(pen);
             
-            y_pos += 10 + PARAGRAPH_SPACING;
+            y_pos += 10 + paragraph_spacing;
             break;
         }
             
         case epub::ElementType::Image:
             drawImage(hdc, elem.image_id, rect, y_pos);
-            y_pos += PARAGRAPH_SPACING;
+            y_pos += paragraph_spacing;
             break;
             
         case epub::ElementType::Heading1:
@@ -381,7 +408,7 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
         case epub::ElementType::Heading4:
         case epub::ElementType::Heading5:
         case epub::ElementType::Heading6: {
-            int heading_size = font_size_ + 8;
+            int heading_size = static_cast<int>((base_font_size + 8) * elem.css_font_size);
             HFONT heading_font = createFont(heading_size, true, false, false, false);
             HFONT old_font = (HFONT)SelectObject(hdc, heading_font);
             
@@ -391,9 +418,9 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             heading_rect.top = y_pos;
             
             int height = DrawTextW(hdc, elem.content.c_str(), -1, &heading_rect, 
-                                  DT_WORDBREAK | DT_NOPREFIX);
+                                  DT_WORDBREAK | DT_NOPREFIX | DT_CENTER);
             
-            y_pos += height + HEADING_SPACING;
+            y_pos += height + heading_spacing;
             
             SelectObject(hdc, old_font);
             DeleteObject(heading_font);
@@ -427,20 +454,20 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             int height = DrawTextW(hdc, elem.content.c_str(), -1, &code_rect, 
                                   DT_NOPREFIX);
             
-            y_pos = code_rect.bottom + PARAGRAPH_SPACING;
+            y_pos = code_rect.bottom + paragraph_spacing;
             
             SelectObject(hdc, old_font);
             break;
         }
         
         case epub::ElementType::ListItem: {
-            rect.left += LIST_INDENT * elem.list_level;
+            rect.left += list_indent * elem.list_level;
             rect.top = y_pos;
             
             const wchar_t bullet_char = 0x2022;
             wchar_t bullet_str[3] = {bullet_char, L' ', L'\0'};
             
-            HFONT font = selectFontForStyle(elem.style);
+            HFONT font = selectFontForStyle(elem.style, elem.css_font_size);
             HFONT old_font = (HFONT)SelectObject(hdc, font);
             SetTextColor(hdc, RGB(0, 0, 0));
             
@@ -457,10 +484,13 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
                 const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
                 
                 SelectObject(hdc, old_font);
+                DeleteObject(font);
+                
+                int actual_size = static_cast<int>(font_size_ * elem.css_font_size);
                 
                 if (is_mono) {
-                    HFONT styled_font = CreateFontW(
-                        font_size_, 0, 0, 0,
+                    font = CreateFontW(
+                        actual_size, 0, 0, 0,
                         is_bold ? FW_BOLD : FW_NORMAL,
                         is_italic ? TRUE : FALSE,
                         has_underline ? TRUE : FALSE,
@@ -468,32 +498,33 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                         DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Courier New"
                     );
-                    old_font = (HFONT)SelectObject(hdc, styled_font);
                 } else {
-                    HFONT styled_font = createFont(font_size_, is_bold, is_italic, has_underline, has_strikethrough);
-                    old_font = (HFONT)SelectObject(hdc, styled_font);
+                    font = createFont(actual_size, is_bold, is_italic, has_underline, has_strikethrough);
                 }
+                old_font = (HFONT)SelectObject(hdc, font);
             }
             
             int height = DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
                                   DT_WORDBREAK | DT_NOPREFIX);
             
-            y_pos += height + LINE_SPACING;
+            y_pos += height + line_spacing;
             
             SelectObject(hdc, old_font);
-            if (has_underline || has_strikethrough) {
-                DeleteObject(font);
-            }
+            DeleteObject(font);
             break;
         }
         
         case epub::ElementType::Quote: {
-            rect.left += QUOTE_INDENT;
-            rect.right -= QUOTE_INDENT;
+            rect.left += quote_indent;
+            rect.right -= quote_indent;
             rect.top = y_pos;
             
             const bool is_bold = epub::hasStyle(elem.style, epub::TextStyle::Bold);
-            HFONT font = is_bold ? bold_italic_font_ : italic_font_;
+            int actual_size = static_cast<int>(font_size_ * elem.css_font_size);
+            
+            HFONT font = is_bold ? 
+                createFont(actual_size, true, true, false, false) : 
+                createFont(actual_size, false, true, false, false);
             HFONT old_font = (HFONT)SelectObject(hdc, font);
             
             SetTextColor(hdc, RGB(80, 80, 80));
@@ -501,9 +532,10 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             int height = DrawTextW(hdc, elem.content.c_str(), -1, &rect, 
                                   DT_WORDBREAK | DT_NOPREFIX);
             
-            y_pos += height + PARAGRAPH_SPACING;
+            y_pos += height + paragraph_spacing;
             
             SelectObject(hdc, old_font);
+            DeleteObject(font);
             break;
         }
         
@@ -519,7 +551,9 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             const bool is_mono = epub::hasStyle(elem.style, epub::TextStyle::Monospace);
             const bool is_small = epub::hasStyle(elem.style, epub::TextStyle::Small);
             
-            int text_size = is_small ? static_cast<int>(font_size_ * 0.85) : font_size_;
+            int text_size = is_small ? 
+                static_cast<int>(font_size_ * elem.css_font_size * 0.85f) : 
+                static_cast<int>(font_size_ * elem.css_font_size);
             
             HFONT font;
             if (is_mono) {
@@ -564,7 +598,7 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             int height = DrawTextW(hdc, elem.content.c_str(), -1, &rect, format);
             
             int spacing = (elem.type == epub::ElementType::Paragraph) ? 
-                         PARAGRAPH_SPACING : LINE_SPACING;
+                         paragraph_spacing : line_spacing;
             y_pos += height + spacing;
             
             SelectObject(hdc, old_font);
@@ -572,6 +606,8 @@ void PageRenderer::renderElement(HDC hdc, const epub::TextElement& elem,
             break;
         }
     }
+    
+    y_pos += elem.css_margin_bottom;
 }
 
 void PageRenderer::drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos) {

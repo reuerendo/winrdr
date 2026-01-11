@@ -51,6 +51,8 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     LOG_DEBUG("HTML document parsed successfully");
     
+    css_processor_.setDocument(document);
+    
     if (zip && image_cache_) {
         extractAndLoadImages(document, zip, base_path);
     }
@@ -107,6 +109,20 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             elem.style = inherited_style;
             elem.align = inherited_align;
             elem.list_level = list_level;
+            
+            lxb_dom_node_t* parent = lxb_dom_node_parent(node);
+            if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+                CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
+                elem.css_font_size = parent_css.font_size;
+                elem.css_line_height = parent_css.line_height;
+                elem.css_letter_spacing = parent_css.letter_spacing;
+                elem.css_margin_top = parent_css.margin_top;
+                elem.css_margin_bottom = parent_css.margin_bottom;
+                elem.css_margin_left = parent_css.margin_left;
+                elem.css_margin_right = parent_css.margin_right;
+                elem.css_small_caps = parent_css.small_caps;
+            }
+            
             output.push_back(elem);
         }
         

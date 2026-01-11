@@ -42,6 +42,9 @@ public:
     ImageCache& getImageCache() { return image_cache_; }
     const ImageCache& getImageCache() const { return image_cache_; }
     
+    HTMLProcessor& getHTMLProcessor() { return html_processor_; }
+    const HTMLProcessor& getHTMLProcessor() const { return html_processor_; }
+    
     size_t findChapterByHref(const std::string& href) const;
 
 private:

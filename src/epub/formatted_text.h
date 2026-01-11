@@ -63,6 +63,15 @@ struct TextElement {
     std::string link_href;
     int list_level;
     
+    float css_font_size = 1.0f;
+    float css_line_height = 1.2f;
+    float css_letter_spacing = 0.0f;
+    int css_margin_top = 0;
+    int css_margin_bottom = 0;
+    int css_margin_left = 0;
+    int css_margin_right = 0;
+    bool css_small_caps = false;
+    
     TextElement() 
         : type(ElementType::Text)
         , style(TextStyle::Normal)

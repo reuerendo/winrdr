@@ -108,3 +108,16 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/test.epub")
         COPYONLY
     )
 endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/epub.css")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/epub.css"
+        "${CMAKE_BINARY_DIR}/Release/epub.css"
+        COPYONLY
+    )
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/epub.css"
+        "${CMAKE_BINARY_DIR}/Debug/epub.css"
+        COPYONLY
+    )
+endif()

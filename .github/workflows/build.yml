@@ -68,8 +68,14 @@ jobs:
     - name: Build
       run: cmake --build build --config Release
     
+    - name: Copy epub.css
+      run: |
+        Copy-Item "epub.css" "build/Release/epub.css"
+    
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: EpubReader-Windows
-        path: build/Release/EpubReader.exe
+        path: |
+          build/Release/EpubReader.exe
+          build/Release/epub.css

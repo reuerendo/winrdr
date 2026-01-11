@@ -1,0 +1,218 @@
+/* Default EPUB Reader Styles */
+
+/* Body */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body * {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Paragraphs */
+p {
+  text-align: justify;
+  text-indent: 0;
+  margin: 0;
+  padding: 0;
+}
+
+p + p {
+  text-indent: 1.5em;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: bold;
+  text-align: center;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 2em;
+}
+
+h2 {
+  font-size: 1.5em;
+}
+
+h3 {
+  font-size: 1.17em;
+}
+
+h4 {
+  font-size: 1em;
+}
+
+h5 {
+  font-size: 0.83em;
+}
+
+h6 {
+  font-size: 0.67em;
+}
+
+/* Text styles */
+em, i, cite {
+  font-style: italic;
+}
+
+strong, b {
+  font-weight: bold;
+}
+
+u, ins {
+  text-decoration: underline;
+}
+
+s, strike, del {
+  text-decoration: line-through;
+}
+
+code, kbd, tt {
+  font-family: monospace;
+}
+
+small {
+  font-size: 0.85em;
+}
+
+sub {
+  vertical-align: sub;
+  font-size: 0.75em;
+}
+
+sup {
+  vertical-align: super;
+  font-size: 0.75em;
+}
+
+/* Lists */
+ul, ol {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  padding-left: 2em;
+}
+
+li {
+  margin-bottom: 0.25em;
+}
+
+/* Blockquote */
+blockquote {
+  margin: 1em 2em;
+  font-style: italic;
+}
+
+/* Code blocks */
+pre {
+  font-family: monospace;
+  white-space: pre-wrap;
+  margin: 1em 0;
+  padding: 0.5em;
+}
+
+/* Links */
+a {
+  text-decoration: underline;
+  color: blue;
+}
+
+/* Images */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+figure {
+  margin: 1em 0;
+  text-align: center;
+}
+
+figcaption {
+  font-size: 0.9em;
+  font-style: italic;
+  text-align: center;
+  margin-top: 0.5em;
+}
+
+/* Horizontal rule */
+hr {
+  border: 0;
+  border-top: 1px solid #ccc;
+  margin: 1em 0;
+}
+
+/* EPUB3 specific styles */
+[role="doc-subtitle"] {
+  text-align: center;
+  font-style: italic;
+  margin-top: 0.5em;
+}
+
+[role="doc-epigraph"] {
+  font-style: italic;
+  margin: 1em 2em;
+  text-align: right;
+}
+
+[role="doc-dedication"] {
+  font-style: italic;
+  text-align: center;
+  margin: 2em 0;
+}
+
+section[role="doc-part"] {
+  page-break-before: always;
+  margin-top: 3em;
+}
+
+section[role="doc-chapter"] {
+  page-break-before: always;
+}
+
+/* Small caps */
+.small-caps {
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+}
+
+/* Text alignment classes */
+.center {
+  text-align: center;
+}
+
+.right {
+  text-align: right;
+}
+
+.justify {
+  text-align: justify;
+}
+
+/* Drop cap */
+.drop-cap:first-letter {
+  font-size: 3em;
+  font-weight: bold;
+  float: left;
+  line-height: 0.8;
+  margin: 0.1em 0.1em 0 0;
+}
+
+/* Page breaks */
+.page-break-before {
+  page-break-before: always;
+}
+
+.page-break-after {
+  page-break-after: always;
+}
+
+.page-break-avoid {
+  page-break-inside: avoid;
+}
