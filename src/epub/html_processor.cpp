@@ -145,19 +145,20 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
                     elem.css_small_caps = parent_css.small_caps;
                     
                     // Check if this is the first text node in this block element
-                    // by checking if there are any previous text elements with the same block type
                     bool is_first_in_block = true;
                     if (!output.empty()) {
                         // Look back to see if we've already added text from this block
                         for (int i = static_cast<int>(output.size()) - 1; i >= 0; i--) {
                             const TextElement& prev = output[i];
-                            // Stop at line break or different block type
+                            // Stop at line break
                             if (prev.type == ElementType::LineBreak) {
                                 break;
                             }
-                            // If we find same block type, this is not the first
+                            // If we find same block type and it has margins set, this is not the first
                             if (prev.type == block_type && prev.type != ElementType::Text) {
-                                is_first_in_block = false;
+                                if (prev.css_margin_top != 0 || prev.css_padding_top != 0) {
+                                    is_first_in_block = false;
+                                }
                                 break;
                             }
                         }
