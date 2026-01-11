@@ -44,7 +44,10 @@ jobs:
         cd libs/lexbor
         cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON
         cmake --build build --config Release
-        Get-ChildItem -Path build -Recurse -Filter "*.lib" | ForEach-Object { Write-Host "Found library: $($_.FullName)" }
+        Write-Host "`nLexbor build directory structure:"
+        Get-ChildItem -Path build -Recurse | Where-Object { $_.Extension -in '.lib','.a' } | ForEach-Object { 
+          Write-Host "  $($_.FullName.Replace((Get-Location).Path, '.'))" 
+        }
         cd ../..
     
     - name: List Lexbor build directory
