@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cctype>
+#include <cwctype>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -472,10 +473,10 @@ std::wstring HTMLProcessor::applyTextTransform(const std::wstring& text, CSSText
             if (!result.empty()) {
                 bool capitalize_next = true;
                 for (size_t i = 0; i < result.length(); i++) {
-                    if (capitalize_next && std::iswalpha(result[i])) {
-                        result[i] = std::towupper(result[i]);
+                    if (capitalize_next && ::iswalpha(result[i])) {
+                        result[i] = ::towupper(result[i]);
                         capitalize_next = false;
-                    } else if (std::iswspace(result[i])) {
+                    } else if (::iswspace(result[i])) {
                         capitalize_next = true;
                     }
                 }
