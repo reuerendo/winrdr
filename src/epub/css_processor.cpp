@@ -577,6 +577,10 @@ bool CSSProcessor::matchesSelector(lxb_dom_node_t* node, const std::string& sele
             return false;
         }
         
+        if (last_part[0] == '#') {
+            return id_name == last_part.substr(1);
+        }
+        
         return tag_name == last_part;
     }
     

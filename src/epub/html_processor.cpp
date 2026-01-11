@@ -101,30 +101,11 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
 #endif
         
         if (!wide_text.empty()) {
-            lxb_dom_node_t* parent = lxb_dom_node_parent(node);
-            CSSComputedStyle parent_css;
-            if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
-                parent_css = css_processor_.computeStyle(parent);
-            }
-            
-            TextStyle final_style = inherited_style;
-            TextAlign final_align = inherited_align;
-            
-            if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
-                TextStyle css_style = css_processor_.convertToTextStyle(parent_css);
-                final_style = final_style | css_style;
-                
-                TextAlign css_align = css_processor_.convertToTextAlign(parent_css);
-                if (css_align != TextAlign::Left) {
-                    final_align = css_align;
-                }
-            }
-            
             TextElement elem;
             elem.type = block_type;
             elem.content = wide_text;
-            elem.style = final_style;
-            elem.align = final_align;
+            elem.style = inherited_style;
+            elem.align = inherited_align;
             elem.list_level = list_level;
             output.push_back(elem);
         }
@@ -186,6 +167,23 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         TextAlign new_align = inherited_align;
         int new_list_level = list_level;
         
+        TextStyle css_text_style = css_processor_.convertToTextStyle(css_style);
+        new_style = new_style | css_text_style;
+        
+        TextAlign css_text_align = css_processor_.convertToTextAlign(css_style);
+        
+        const bool is_block_element = (tag_name == "p" || tag_name == "div" || 
+                                      tag_name == "h1" || tag_name == "h2" || 
+                                      tag_name == "h3" || tag_name == "h4" || 
+                                      tag_name == "h5" || tag_name == "h6" ||
+                                      tag_name == "blockquote");
+        
+        if (is_block_element) {
+            new_align = css_text_align;
+        } else if (css_text_align != TextAlign::Left) {
+            new_align = css_text_align;
+        }
+        
         if (tag_name == "p") {
             new_block_type = ElementType::Paragraph;
         } else if (tag_name == "h1") {
@@ -237,14 +235,6 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             new_block_type = ElementType::Link;
             new_style = new_style | TextStyle::Underline;
             std::string href = getAttributeValue(node, "href");
-        }
-        
-        TextStyle css_text_style = css_processor_.convertToTextStyle(css_style);
-        new_style = new_style | css_text_style;
-        
-        TextAlign css_text_align = css_processor_.convertToTextAlign(css_style);
-        if (css_text_align != TextAlign::Left || tag_name == "p" || tag_name == "div") {
-            new_align = css_text_align;
         }
         
         lxb_dom_node_t* child = lxb_dom_node_first_child(node);
