@@ -60,6 +60,9 @@ set(SOURCES
     src/epub/image_cache.cpp
     src/epub/html_processor.cpp
     src/epub/css_processor.cpp
+    src/epub/css_selector_matcher.cpp
+    src/epub/css_property_applier.cpp
+    src/epub/css_box_model_applier.cpp
     src/epub/toc_parser.cpp
     src/epub/reading_position.cpp
     src/render/page_renderer.cpp
@@ -72,7 +75,11 @@ set(HEADERS
     src/epub/image_cache.h
     src/epub/formatted_text.h
     src/epub/html_processor.h
+    src/epub/css_types.h
     src/epub/css_processor.h
+    src/epub/css_selector_matcher.h
+    src/epub/css_property_applier.h
+    src/epub/css_box_model_applier.h
     src/epub/toc_parser.h
     src/epub/reading_position.h
     src/render/page_renderer.h
