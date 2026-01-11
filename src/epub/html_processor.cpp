@@ -110,22 +110,36 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             elem.align = inherited_align;
             elem.list_level = list_level;
             
+            // Apply CSS from parent element only if parent is a block-level element
             lxb_dom_node_t* parent = lxb_dom_node_parent(node);
             if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
-                CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
-                elem.css_font_size = parent_css.font_size;
-                elem.css_line_height = parent_css.line_height;
-                elem.css_letter_spacing = parent_css.letter_spacing;
-                elem.css_margin_top = parent_css.margin_top;
-                elem.css_margin_bottom = parent_css.margin_bottom;
-                elem.css_margin_left = parent_css.margin_left;
-                elem.css_margin_right = parent_css.margin_right;
-                elem.css_padding_top = parent_css.padding_top;
-                elem.css_padding_bottom = parent_css.padding_bottom;
-                elem.css_padding_left = parent_css.padding_left;
-                elem.css_padding_right = parent_css.padding_right;
-                elem.css_text_indent = parent_css.text_indent;
-                elem.css_small_caps = parent_css.small_caps;
+                lxb_dom_element_t* parent_element = lxb_dom_interface_element(parent);
+                const lxb_char_t* parent_tag_name_raw = lxb_dom_element_qualified_name(parent_element, nullptr);
+                std::string parent_tag_name(reinterpret_cast<const char*>(parent_tag_name_raw));
+                
+                // Only apply box model from block-level elements
+                const bool is_parent_block = (parent_tag_name == "p" || parent_tag_name == "div" || 
+                                             parent_tag_name == "blockquote" || parent_tag_name == "li" ||
+                                             parent_tag_name == "h1" || parent_tag_name == "h2" || 
+                                             parent_tag_name == "h3" || parent_tag_name == "h4" || 
+                                             parent_tag_name == "h5" || parent_tag_name == "h6");
+                
+                if (is_parent_block) {
+                    CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
+                    elem.css_font_size = parent_css.font_size;
+                    elem.css_line_height = parent_css.line_height;
+                    elem.css_letter_spacing = parent_css.letter_spacing;
+                    elem.css_margin_top = parent_css.margin_top;
+                    elem.css_margin_bottom = parent_css.margin_bottom;
+                    elem.css_margin_left = parent_css.margin_left;
+                    elem.css_margin_right = parent_css.margin_right;
+                    elem.css_padding_top = parent_css.padding_top;
+                    elem.css_padding_bottom = parent_css.padding_bottom;
+                    elem.css_padding_left = parent_css.padding_left;
+                    elem.css_padding_right = parent_css.padding_right;
+                    elem.css_text_indent = parent_css.text_indent;
+                    elem.css_small_caps = parent_css.small_caps;
+                }
             }
             
             output.push_back(elem);
