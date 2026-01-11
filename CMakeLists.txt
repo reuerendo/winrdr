@@ -9,10 +9,8 @@ if(WIN32)
     add_compile_options(/utf-8)
 endif()
 
-# Lexbor library
 set(LEXBOR_DIR "${CMAKE_SOURCE_DIR}/libs/lexbor")
 
-# Try to find Lexbor library in various locations
 set(LEXBOR_LIBRARY_PATHS
     "${LEXBOR_DIR}/build/liblexbor_static.lib"
     "${LEXBOR_DIR}/build/Release/liblexbor_static.lib"
@@ -20,6 +18,9 @@ set(LEXBOR_LIBRARY_PATHS
     "${LEXBOR_DIR}/build/liblexbor_static.a"
     "${LEXBOR_DIR}/build/lib/liblexbor_static.lib"
     "${LEXBOR_DIR}/build/lib/Release/liblexbor_static.lib"
+    "${LEXBOR_DIR}/build/source/lexbor/Release/lexbor_static.lib"
+    "${LEXBOR_DIR}/build/source/lexbor/Debug/lexbor_static.lib"
+    "${LEXBOR_DIR}/build/source/lexbor/lexbor_static.lib"
 )
 
 set(LEXBOR_LIBRARY "")
@@ -32,14 +33,20 @@ foreach(lib_path ${LEXBOR_LIBRARY_PATHS})
 endforeach()
 
 if(NOT LEXBOR_LIBRARY)
-    message(FATAL_ERROR 
-        "Lexbor library not found. Please build lexbor first:\n"
-        "  cd libs/lexbor\n"
-        "  cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON\n"
-        "  cmake --build build --config Release\n"
-        "Searched paths:\n"
-        "  ${LEXBOR_LIBRARY_PATHS}"
-    )
+    file(GLOB_RECURSE LEXBOR_SEARCH "${LEXBOR_DIR}/build/*.lib" "${LEXBOR_DIR}/build/*.a")
+    if(LEXBOR_SEARCH)
+        list(GET LEXBOR_SEARCH 0 LEXBOR_LIBRARY)
+        message(STATUS "Found Lexbor library via search: ${LEXBOR_LIBRARY}")
+    else()
+        message(FATAL_ERROR 
+            "Lexbor library not found. Please build lexbor first:\n"
+            "  cd libs/lexbor\n"
+            "  cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON\n"
+            "  cmake --build build --config Release\n"
+            "Searched paths:\n"
+            "  ${LEXBOR_LIBRARY_PATHS}"
+        )
+    endif()
 endif()
 
 set(LEXBOR_INCLUDE "${LEXBOR_DIR}/source")
