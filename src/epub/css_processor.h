@@ -1,5 +1,10 @@
+// Main CSS processor: coordinates parsing, selector matching, and property application
 #pragma once
 
+#include "css_types.h"
+#include "css_selector_matcher.h"
+#include "css_property_applier.h"
+#include "css_box_model_applier.h"
 #include "formatted_text.h"
 #include <string>
 #include <vector>
@@ -11,71 +16,6 @@ typedef struct lxb_dom_element lxb_dom_element_t;
 typedef struct lxb_html_document lxb_html_document_t;
 
 namespace epub {
-
-enum class CSSDisplay {
-    None,
-    Block,
-    Inline,
-    InlineBlock,
-    ListItem
-};
-
-enum class CSSVerticalAlign {
-    Baseline,
-    Sub,
-    Super,
-    Top,
-    Middle,
-    Bottom
-};
-
-enum class CSSTextTransform {
-    None,
-    Uppercase,
-    Lowercase,
-    Capitalize
-};
-
-enum class CSSWhiteSpace {
-    Normal,
-    Pre,
-    PreWrap,
-    PreLine,
-    Nowrap
-};
-
-struct CSSComputedStyle {
-    bool bold = false;
-    bool italic = false;
-    bool underline = false;
-    bool strikethrough = false;
-    bool monospace = false;
-    bool small_caps = false;
-    
-    float font_size = 1.0f;
-    float line_height = 1.2f;
-    float letter_spacing = 0.0f;
-    
-    int margin_top = 0;
-    int margin_bottom = 0;
-    int margin_left = 0;
-    int margin_right = 0;
-    
-    int padding_top = 0;
-    int padding_bottom = 0;
-    int padding_left = 0;
-    int padding_right = 0;
-    
-    CSSDisplay display = CSSDisplay::Inline;
-    CSSVerticalAlign vertical_align = CSSVerticalAlign::Baseline;
-    TextAlign text_align = TextAlign::Left;
-    CSSTextTransform text_transform = CSSTextTransform::None;
-    CSSWhiteSpace white_space = CSSWhiteSpace::Normal;
-    
-    bool page_break_before = false;
-    bool page_break_after = false;
-    bool page_break_inside_avoid = false;
-};
 
 class CSSProcessor {
 public:
@@ -98,70 +38,22 @@ public:
     size_t getRulesCount() const { return rules_.size(); }
 
 private:
-    struct PropertyValue {
-        std::string value;
-        int specificity;
-    };
-    
-    struct RuleData {
-        std::string selector;
-        std::unordered_map<std::string, std::string> properties;
-        int specificity;
-    };
-    
     void parseSimpleCSS(const std::string& css);
     void parseInlineStyle(const std::string& style_text, 
                          std::unordered_map<std::string, PropertyValue>& properties);
     
-    void applyProperty(const std::string& name, const std::string& value, 
-                      CSSComputedStyle& style);
-    
-    void applyFontWeight(const std::string& value, CSSComputedStyle& style);
-    void applyFontStyle(const std::string& value, CSSComputedStyle& style);
-    void applyTextDecoration(const std::string& value, CSSComputedStyle& style);
-    void applyFontVariant(const std::string& value, CSSComputedStyle& style);
-    void applyFontFamily(const std::string& value, CSSComputedStyle& style);
-    void applyFontSize(const std::string& value, CSSComputedStyle& style);
-    void applyLineHeight(const std::string& value, CSSComputedStyle& style);
-    void applyLetterSpacing(const std::string& value, CSSComputedStyle& style);
-    void applyTextAlign(const std::string& value, CSSComputedStyle& style);
-    void applyDisplay(const std::string& value, CSSComputedStyle& style);
-    void applyVerticalAlign(const std::string& value, CSSComputedStyle& style);
-    void applyTextTransform(const std::string& value, CSSComputedStyle& style);
-    void applyWhiteSpace(const std::string& value, CSSComputedStyle& style);
-    void applyMargin(const std::string& property, const std::string& value, 
-                     CSSComputedStyle& style);
-    void applyPadding(const std::string& property, const std::string& value, 
-                      CSSComputedStyle& style);
-    void applyPageBreak(const std::string& property, const std::string& value, 
-                       CSSComputedStyle& style);
-    
-    int parseLength(const std::string& value);
-    float parseFloat(const std::string& value);
-    
     std::string trim(const std::string& str);
     std::string toLowerCase(const std::string& str);
-    
-    int calculateSpecificity(const std::string& selector);
-    bool matchesSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesSimpleSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesBasicSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesDescendantSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesChildSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesAdjacentSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesSiblingSelector(lxb_dom_node_t* node, const std::string& selector);
-    bool matchesPseudoClass(lxb_dom_node_t* node, const std::string& pseudo);
-    
-    std::string getTagName(lxb_dom_node_t* node);
-    std::string getClassName(lxb_dom_node_t* node);
-    std::string getIdName(lxb_dom_node_t* node);
-    std::string getAttributeValue(lxb_dom_node_t* node, const std::string& attr_name);
     
     lxb_selectors_t* selectors_;
     lxb_html_document_t* document_;
     
     std::vector<RuleData> rules_;
     std::unordered_map<lxb_dom_element_t*, std::unordered_map<std::string, PropertyValue>> inline_styles_;
+    
+    CSSSelectorMatcher selector_matcher_;
+    CSSPropertyApplier property_applier_;
+    CSSBoxModelApplier box_model_applier_;
 };
 
 } // namespace epub
