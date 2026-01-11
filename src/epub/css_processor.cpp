@@ -32,6 +32,40 @@ void CSSProcessor::clear() {
     inline_styles_.clear();
 }
 
+void CSSProcessor::addInlineStyle(lxb_dom_element_t* element, const std::string& style_text) {
+    if (!element || style_text.empty()) {
+        return;
+    }
+    
+    std::unordered_map<std::string, PropertyValue>& properties = inline_styles_[element];
+    parseInlineStyle(style_text, properties);
+}
+
+void CSSProcessor::parseInlineStyle(const std::string& style_text, 
+                                    std::unordered_map<std::string, PropertyValue>& properties) {
+    const int inline_specificity = 1000;
+    
+    std::istringstream stream(style_text);
+    std::string declaration;
+    
+    while (std::getline(stream, declaration, ';')) {
+        size_t colon_pos = declaration.find(':');
+        if (colon_pos == std::string::npos) {
+            continue;
+        }
+        
+        std::string prop_name = trim(declaration.substr(0, colon_pos));
+        std::string prop_value = trim(declaration.substr(colon_pos + 1));
+        
+        if (!prop_name.empty() && !prop_value.empty()) {
+            PropertyValue pv;
+            pv.value = prop_value;
+            pv.specificity = inline_specificity;
+            properties[prop_name] = pv;
+        }
+    }
+}
+
 bool CSSProcessor::loadDefaultStyles(const std::string& css_file_path) {
     LOG_INFO("Loading default styles from:", css_file_path);
     
