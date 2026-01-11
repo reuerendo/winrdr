@@ -1,118 +1,113 @@
 #include "css_processor.h"
 #include "../utils/logger.h"
+#include <lexbor/css/css.h>
+#include <lexbor/selectors/selectors.h>
 #include <lexbor/dom/interfaces/element.h>
 #include <algorithm>
 #include <sstream>
 #include <cstring>
 #include <cctype>
+#include <fstream>
 
 namespace epub {
 
-CSSProcessor::CSSProcessor() {
+CSSProcessor::CSSProcessor() 
+    : css_memory_(nullptr)
+    , css_parser_(nullptr)
+    , selectors_(nullptr)
+    , document_(nullptr)
+{
+    css_memory_ = lxb_css_memory_create();
+    lxb_css_memory_init(css_memory_, 128);
+    
+    css_parser_ = lxb_css_parser_create();
+    lxb_css_parser_init(css_parser_, nullptr);
+    
+    selectors_ = lxb_selectors_create();
+    lxb_selectors_init(selectors_);
 }
 
 CSSProcessor::~CSSProcessor() {
     clear();
+    
+    if (selectors_) {
+        lxb_selectors_destroy(selectors_, true);
+    }
+    
+    if (css_parser_) {
+        lxb_css_parser_destroy(css_parser_, true);
+    }
+    
+    if (css_memory_) {
+        lxb_css_memory_destroy(css_memory_, true);
+    }
 }
 
 void CSSProcessor::clear() {
-    rules_.clear();
+    for (auto* stylesheet : stylesheets_) {
+        if (stylesheet) {
+            lxb_css_stylesheet_destroy(stylesheet, true);
+        }
+    }
+    stylesheets_.clear();
     inline_styles_.clear();
 }
 
-void CSSProcessor::parseStylesheet(const std::string& css) {
+bool CSSProcessor::loadDefaultStyles(const std::string& css_file_path) {
+    LOG_INFO("Loading default styles from:", css_file_path);
+    
+    std::ifstream file(css_file_path);
+    if (!file.is_open()) {
+        LOG_WARNING("Could not open default CSS file:", css_file_path);
+        return false;
+    }
+    
+    std::string css_content((std::istreambuf_iterator<char>(file)),
+                            std::istreambuf_iterator<char>());
+    file.close();
+    
+    if (css_content.empty()) {
+        LOG_WARNING("Default CSS file is empty");
+        return false;
+    }
+    
+    LOG_INFO("Loaded default CSS, length:", css_content.length());
+    return parseStylesheet(css_content);
+}
+
+void CSSProcessor::setDocument(lxb_html_document_t* document) {
+    document_ = document;
+}
+
+bool CSSProcessor::parseStylesheet(const std::string& css) {
     if (css.empty()) {
-        return;
+        return false;
     }
     
     LOG_DEBUG("Parsing CSS stylesheet, length:", css.length());
     
-    parseSimpleCSS(css);
-    
-    LOG_INFO("CSS rules loaded:", rules_.size());
-}
-
-void CSSProcessor::parseSimpleCSS(const std::string& css) {
-    size_t pos = 0;
-    int rules_parsed = 0;
-    
-    while (pos < css.length()) {
-        size_t brace_open = css.find('{', pos);
-        if (brace_open == std::string::npos) break;
-        
-        std::string selector_text = css.substr(pos, brace_open - pos);
-        
-        size_t brace_close = css.find('}', brace_open);
-        if (brace_close == std::string::npos) break;
-        
-        std::string declarations_text = css.substr(brace_open + 1, brace_close - brace_open - 1);
-        
-        std::istringstream selector_stream(selector_text);
-        std::string selector;
-        
-        while (std::getline(selector_stream, selector, ',')) {
-            selector = trim(selector);
-            if (selector.empty()) continue;
-            
-            RuleData rule;
-            rule.selector = selector;
-            rule.specificity = calculateSpecificity(selector);
-            
-            std::istringstream decl_stream(declarations_text);
-            std::string declaration;
-            
-            while (std::getline(decl_stream, declaration, ';')) {
-                size_t colon_pos = declaration.find(':');
-                if (colon_pos == std::string::npos) continue;
-                
-                std::string prop_name = trim(declaration.substr(0, colon_pos));
-                std::string prop_value = trim(declaration.substr(colon_pos + 1));
-                
-                if (!prop_name.empty() && !prop_value.empty()) {
-                    rule.properties[prop_name] = prop_value;
-                }
-            }
-            
-            if (!rule.properties.empty()) {
-                rules_.push_back(rule);
-                rules_parsed++;
-            }
-        }
-        
-        pos = brace_close + 1;
+    lxb_css_stylesheet_t* stylesheet = lxb_css_stylesheet_create(css_memory_);
+    if (!stylesheet) {
+        LOG_ERROR("Failed to create CSS stylesheet");
+        return false;
     }
     
-    LOG_DEBUG("Parsed CSS rules:", rules_parsed);
-}
-
-void CSSProcessor::addInlineStyle(lxb_dom_element_t* element, const std::string& style) {
-    if (!element || style.empty()) {
-        return;
+    lxb_status_t status = lxb_css_stylesheet_parse(stylesheet, 
+        reinterpret_cast<const lxb_char_t*>(css.c_str()), css.length());
+    
+    if (status != LXB_STATUS_OK) {
+        LOG_WARNING("CSS parse had errors, but continuing");
     }
     
-    std::unordered_map<std::string, PropertyValue>& properties = inline_styles_[element];
-    parseInlineProperties(style, properties);
-}
-
-void CSSProcessor::parseInlineProperties(const std::string& style_text, 
-                                        std::unordered_map<std::string, PropertyValue>& properties) {
-    std::istringstream stream(style_text);
-    std::string declaration;
+    stylesheets_.push_back(stylesheet);
     
-    while (std::getline(stream, declaration, ';')) {
-        size_t colon_pos = declaration.find(':');
-        if (colon_pos == std::string::npos) continue;
-        
-        std::string name = trim(declaration.substr(0, colon_pos));
-        std::string value = trim(declaration.substr(colon_pos + 1));
-        
-        if (!name.empty() && !value.empty()) {
-            PropertyValue prop;
-            prop.value = value;
-            prop.specificity = 1000;
-            properties[name] = prop;
-        }
+    lxb_css_rule_list_t* rules = lxb_css_stylesheet_rules(stylesheet);
+    if (rules) {
+        size_t rules_count = lxb_css_rule_list_length(rules);
+        LOG_INFO("Parsed", rules_count, "CSS rules");
     }
+    
+    return true;
 }
 
 CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
@@ -126,20 +121,58 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
     
     std::unordered_map<std::string, PropertyValue> matched_properties;
     
-    int rules_matched = 0;
-    for (const RuleData& rule : rules_) {
-        if (matchesSelector(node, rule.selector)) {
-            rules_matched++;
-            for (const auto& prop_pair : rule.properties) {
-                const std::string& prop_name = prop_pair.first;
-                const std::string& prop_value = prop_pair.second;
+    for (auto* stylesheet : stylesheets_) {
+        lxb_css_rule_list_t* rules = lxb_css_stylesheet_rules(stylesheet);
+        if (!rules) continue;
+        
+        size_t rules_count = lxb_css_rule_list_length(rules);
+        
+        for (size_t i = 0; i < rules_count; i++) {
+            lxb_css_rule_t* rule = lxb_css_rule_list_at(rules, i);
+            if (!rule || rule->type != LXB_CSS_RULE_STYLE) {
+                continue;
+            }
+            
+            lxb_css_rule_style_t* style_rule = lxb_css_rule_style(rule);
+            lxb_css_selector_list_t* selector_list = lxb_css_rule_style_selector(style_rule);
+            lxb_css_rule_declaration_list_t* declarations = lxb_css_rule_style_declarations(style_rule);
+            
+            if (!selector_list || !declarations) {
+                continue;
+            }
+            
+            for (size_t s = 0; s < lxb_css_selector_list_length(selector_list); s++) {
+                lxb_css_selector_t* selector = lxb_css_selector_list_at(selector_list, s);
+                if (!selector) continue;
                 
-                auto it = matched_properties.find(prop_name);
-                if (it == matched_properties.end() || it->second.specificity < rule.specificity) {
-                    PropertyValue pv;
-                    pv.value = prop_value;
-                    pv.specificity = rule.specificity;
-                    matched_properties[prop_name] = pv;
+                lxb_status_t match_status = lxb_selectors_match(selectors_, element, selector);
+                
+                if (match_status == LXB_STATUS_OK) {
+                    int specificity = calculateSpecificity(selector);
+                    
+                    for (size_t d = 0; d < lxb_css_rule_declaration_list_length(declarations); d++) {
+                        lxb_css_rule_declaration_t* decl = lxb_css_rule_declaration_list_at(declarations, d);
+                        if (!decl) continue;
+                        
+                        size_t name_len = 0;
+                        const lxb_char_t* name = lxb_css_rule_declaration_name(decl, &name_len);
+                        
+                        size_t value_len = 0;
+                        const lxb_char_t* value = lxb_css_rule_declaration_value_serialize(decl, &value_len);
+                        
+                        if (name && value && name_len > 0 && value_len > 0) {
+                            std::string prop_name(reinterpret_cast<const char*>(name), name_len);
+                            std::string prop_value(reinterpret_cast<const char*>(value), value_len);
+                            
+                            auto it = matched_properties.find(prop_name);
+                            if (it == matched_properties.end() || it->second.specificity < specificity) {
+                                PropertyValue pv;
+                                pv.value = prop_value;
+                                pv.specificity = specificity;
+                                matched_properties[prop_name] = pv;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -157,6 +190,36 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
     }
     
     return style;
+}
+
+int CSSProcessor::calculateSpecificity(lxb_css_selector_t* selector) {
+    int specificity = 0;
+    
+    lxb_css_selector_t* current = selector;
+    while (current) {
+        switch (current->type) {
+            case LXB_CSS_SELECTOR_TYPE_ID:
+                specificity += 100;
+                break;
+            case LXB_CSS_SELECTOR_TYPE_CLASS:
+            case LXB_CSS_SELECTOR_TYPE_ATTRIBUTE:
+            case LXB_CSS_SELECTOR_TYPE_PSEUDO_CLASS:
+            case LXB_CSS_SELECTOR_TYPE_PSEUDO_CLASS_FUNCTION:
+                specificity += 10;
+                break;
+            case LXB_CSS_SELECTOR_TYPE_ELEMENT:
+            case LXB_CSS_SELECTOR_TYPE_PSEUDO_ELEMENT:
+            case LXB_CSS_SELECTOR_TYPE_PSEUDO_ELEMENT_FUNCTION:
+                specificity += 1;
+                break;
+            default:
+                break;
+        }
+        
+        current = lxb_css_selector_next(current);
+    }
+    
+    return specificity;
 }
 
 void CSSProcessor::applyProperty(const std::string& name, const std::string& value, 
@@ -437,154 +500,15 @@ std::string CSSProcessor::toLowerCase(const std::string& str) {
     return result;
 }
 
-int CSSProcessor::calculateSpecificity(const std::string& selector) {
-    int specificity = 0;
-    
-    size_t id_count = 0;
-    size_t class_count = 0;
-    size_t element_count = 0;
-    
-    for (size_t i = 0; i < selector.length(); i++) {
-        if (selector[i] == '#') {
-            id_count++;
-        } else if (selector[i] == '.' || selector[i] == '[') {
-            class_count++;
-        } else if (std::isalpha(selector[i]) && 
-                   (i == 0 || !std::isalnum(selector[i-1]))) {
-            element_count++;
+size_t CSSProcessor::getRulesCount() const {
+    size_t total = 0;
+    for (auto* stylesheet : stylesheets_) {
+        lxb_css_rule_list_t* rules = lxb_css_stylesheet_rules(stylesheet);
+        if (rules) {
+            total += lxb_css_rule_list_length(rules);
         }
     }
-    
-    specificity = (id_count * 100) + (class_count * 10) + element_count;
-    
-    return specificity;
-}
-
-std::string CSSProcessor::getTagName(lxb_dom_node_t* node) {
-    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
-        return "";
-    }
-    
-    lxb_dom_element_t* element = lxb_dom_interface_element(node);
-    const lxb_char_t* tag_name_raw = lxb_dom_element_qualified_name(element, nullptr);
-    
-    if (tag_name_raw) {
-        return std::string(reinterpret_cast<const char*>(tag_name_raw));
-    }
-    
-    return "";
-}
-
-std::string CSSProcessor::getClassName(lxb_dom_node_t* node) {
-    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
-        return "";
-    }
-    
-    lxb_dom_element_t* element = lxb_dom_interface_element(node);
-    
-    size_t attr_len = 0;
-    const lxb_char_t* attr_value = lxb_dom_element_get_attribute(
-        element,
-        reinterpret_cast<const lxb_char_t*>("class"),
-        5,
-        &attr_len
-    );
-    
-    if (attr_value && attr_len > 0) {
-        return std::string(reinterpret_cast<const char*>(attr_value), attr_len);
-    }
-    
-    return "";
-}
-
-std::string CSSProcessor::getIdName(lxb_dom_node_t* node) {
-    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
-        return "";
-    }
-    
-    lxb_dom_element_t* element = lxb_dom_interface_element(node);
-    
-    size_t attr_len = 0;
-    const lxb_char_t* attr_value = lxb_dom_element_get_attribute(
-        element,
-        reinterpret_cast<const lxb_char_t*>("id"),
-        2,
-        &attr_len
-    );
-    
-    if (attr_value && attr_len > 0) {
-        return std::string(reinterpret_cast<const char*>(attr_value), attr_len);
-    }
-    
-    return "";
-}
-
-bool CSSProcessor::matchesSelector(lxb_dom_node_t* node, const std::string& selector) {
-    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
-        return false;
-    }
-    
-    std::string selector_lower = toLowerCase(trim(selector));
-    
-    std::string tag_name = toLowerCase(getTagName(node));
-    std::string class_name = getClassName(node);
-    std::string id_name = getIdName(node);
-    
-    if (selector_lower == "*") {
-        return true;
-    }
-    
-    if (selector_lower[0] == '#') {
-        return id_name == selector_lower.substr(1);
-    }
-    
-    if (selector_lower[0] == '.') {
-        std::string class_to_match = selector_lower.substr(1);
-        std::istringstream class_stream(class_name);
-        std::string cls;
-        while (class_stream >> cls) {
-            if (toLowerCase(cls) == class_to_match) {
-                return true;
-            }
-        }
-        return false;
-    }
-    
-    if (selector_lower.find('[') != std::string::npos) {
-        size_t bracket_pos = selector_lower.find('[');
-        std::string base_tag = selector_lower.substr(0, bracket_pos);
-        
-        if (!base_tag.empty() && base_tag != tag_name) {
-            return false;
-        }
-        
-        return true;
-    }
-    
-    if (selector_lower.find(' ') != std::string::npos) {
-        size_t space_pos = selector_lower.find_last_of(' ');
-        std::string last_part = selector_lower.substr(space_pos + 1);
-        
-        if (last_part[0] == '.') {
-            std::string class_to_match = last_part.substr(1);
-            std::istringstream class_stream(class_name);
-            std::string cls;
-            while (class_stream >> cls) {
-                if (toLowerCase(cls) == class_to_match) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        
-        if (last_part[0] == '#') {
-            return id_name == last_part.substr(1);
-        }
-        
-        return tag_name == last_part;
-    }
-    
-    return tag_name == selector_lower;
+    return total;
 }
 
 TextStyle CSSProcessor::convertToTextStyle(const CSSComputedStyle& css_style) {
