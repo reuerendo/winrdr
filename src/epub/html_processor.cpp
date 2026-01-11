@@ -110,18 +110,23 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             elem.align = inherited_align;
             elem.list_level = list_level;
             
-            lxb_dom_node_t* parent = lxb_dom_node_parent(node);
-            if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
-                CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
-                elem.css_font_size = parent_css.font_size;
-                elem.css_line_height = parent_css.line_height;
-                elem.css_letter_spacing = parent_css.letter_spacing;
-                elem.css_margin_top = parent_css.margin_top;
-                elem.css_margin_bottom = parent_css.margin_bottom;
-                elem.css_margin_left = parent_css.margin_left;
-                elem.css_margin_right = parent_css.margin_right;
-                elem.css_small_caps = parent_css.small_caps;
-            }
+			lxb_dom_node_t* parent = lxb_dom_node_parent(node);
+			if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+				CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
+				elem.css_font_size = parent_css.font_size;
+				elem.css_line_height = parent_css.line_height;
+				elem.css_letter_spacing = parent_css.letter_spacing;
+				elem.css_margin_top = parent_css.margin_top;
+				elem.css_margin_bottom = parent_css.margin_bottom;
+				elem.css_margin_left = parent_css.margin_left;
+				elem.css_margin_right = parent_css.margin_right;
+				elem.css_padding_top = parent_css.padding_top;
+				elem.css_padding_bottom = parent_css.padding_bottom;
+				elem.css_padding_left = parent_css.padding_left;
+				elem.css_padding_right = parent_css.padding_right;
+				elem.css_text_indent = parent_css.text_indent;
+				elem.css_small_caps = parent_css.small_caps;
+			}
             
             output.push_back(elem);
         }

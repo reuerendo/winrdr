@@ -70,6 +70,11 @@ struct TextElement {
     int css_margin_bottom = 0;
     int css_margin_left = 0;
     int css_margin_right = 0;
+    int css_padding_top = 0;
+    int css_padding_bottom = 0;
+    int css_padding_left = 0;
+    int css_padding_right = 0;
+    int css_text_indent = 0;
     bool css_small_caps = false;
     
     TextElement() 

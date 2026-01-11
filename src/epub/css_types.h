@@ -63,6 +63,8 @@ struct CSSComputedStyle {
     int padding_left = 0;
     int padding_right = 0;
     
+    int text_indent = 0;
+    
     CSSDisplay display = CSSDisplay::Inline;
     CSSVerticalAlign vertical_align = CSSVerticalAlign::Baseline;
     TextAlign text_align = TextAlign::Left;
