@@ -12,28 +12,44 @@ endif()
 set(LEXBOR_DIR "${CMAKE_SOURCE_DIR}/libs/lexbor")
 set(LEXBOR_INCLUDE "${LEXBOR_DIR}/source")
 
-message(STATUS "Searching for Lexbor libraries in: ${LEXBOR_DIR}/build")
+message(STATUS "========================================")
+message(STATUS "Searching for Lexbor libraries")
+message(STATUS "========================================")
 
-file(GLOB_RECURSE ALL_LEXBOR_LIBS 
+file(GLOB_RECURSE ALL_LIBS 
     "${LEXBOR_DIR}/build/*.lib" 
     "${LEXBOR_DIR}/build/*.a"
 )
 
-if(ALL_LEXBOR_LIBS)
-    message(STATUS "Found Lexbor libraries:")
-    foreach(lib ${ALL_LEXBOR_LIBS})
-        message(STATUS "  ${lib}")
-    endforeach()
-    
-    set(LEXBOR_LIBRARIES ${ALL_LEXBOR_LIBS})
-else()
+message(STATUS "Found library files:")
+foreach(lib ${ALL_LIBS})
+    message(STATUS "  ${lib}")
+endforeach()
+
+set(LEXBOR_LIBRARIES "")
+
+foreach(lib ${ALL_LIBS})
+    get_filename_component(lib_name ${lib} NAME_WE)
+    if(lib_name MATCHES "lexbor")
+        list(APPEND LEXBOR_LIBRARIES ${lib})
+    endif()
+endforeach()
+
+if(NOT LEXBOR_LIBRARIES)
     message(FATAL_ERROR 
-        "Lexbor libraries not found. Please build lexbor first:\n"
+        "No Lexbor libraries found!\n"
+        "Please build lexbor first:\n"
         "  cd libs/lexbor\n"
         "  cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON\n"
         "  cmake --build build --config Release"
     )
 endif()
+
+message(STATUS "Libraries to link:")
+foreach(lib ${LEXBOR_LIBRARIES})
+    message(STATUS "  ${lib}")
+endforeach()
+message(STATUS "========================================")
 
 set(SOURCES
     src/main.cpp
@@ -66,7 +82,12 @@ if(WIN32)
 endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${LEXBOR_INCLUDE})
-target_link_libraries(${PROJECT_NAME} ${LEXBOR_LIBRARIES})
+
+message(STATUS "Linking libraries to target:")
+foreach(lib ${LEXBOR_LIBRARIES})
+    message(STATUS "  ${lib}")
+    target_link_libraries(${PROJECT_NAME} ${lib})
+endforeach()
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} 
