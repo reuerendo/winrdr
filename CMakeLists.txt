@@ -4,9 +4,12 @@ project(EpubReader)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Define LXB_STATIC to tell Lexbor headers we are using the static library.
-# This fixes the linker errors (__imp_ symbols) on Windows.
-add_definitions(-DLXB_STATIC)
+# === FIX FOR LINKER ERRORS ===
+# 1. LXB_STATIC: Standard flag for static Lexbor.
+# 2. LEXBOR_STATIC: Alternative flag often required by headers.
+# 3. LXB_API=: Force LXB_API to be empty. This prevents '__declspec(dllimport)' 
+#    from being generated even if the other flags are ignored.
+add_definitions(-DLXB_STATIC -DLEXBOR_STATIC -DLXB_API=)
 
 if(WIN32)
     add_definitions(-DUNICODE -D_UNICODE)
@@ -34,7 +37,7 @@ set(LEXBOR_LIBRARIES "")
 
 foreach(lib ${ALL_LIBS})
     get_filename_component(lib_name ${lib} NAME_WE)
-    # We explicitly look for lexbor related libs
+    # Filter for lexbor libs specifically
     if(lib_name MATCHES "lexbor")
         list(APPEND LEXBOR_LIBRARIES ${lib})
     endif()
