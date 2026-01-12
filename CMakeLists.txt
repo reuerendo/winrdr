@@ -4,66 +4,25 @@ project(EpubReader)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Глобальные настройки для UTF-8 и Windows
 if(WIN32)
-    add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX)
+    add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX -DLITEHTML_UTF8)
     add_compile_options(/utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
 
-# Check if litehtml has CMakeLists.txt
+# Настройка litehtml
+# Важно: litehtml сам подключит gumbo, если использовать его CMake
+set(LITEHTML_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(LITEHTML_UTF8 ON CACHE BOOL "" FORCE)
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/libs/litehtml/CMakeLists.txt")
-    # Use litehtml's own build system
     add_subdirectory(libs/litehtml EXCLUDE_FROM_ALL)
 else()
-    # Manual build for gumbo-parser with Windows compatibility
-    file(GLOB GUMBO_SOURCES "libs/litehtml/src/gumbo/*.c")
-    
-    if(NOT GUMBO_SOURCES)
-        # Try alternative location
-        file(GLOB GUMBO_SOURCES "libs/litehtml/lib/gumbo/src/*.c")
-    endif()
-    
-    if(GUMBO_SOURCES)
-        add_library(gumbo STATIC ${GUMBO_SOURCES})
-        
-        # Add libs directory to include path for strings.h compatibility header
-        target_include_directories(gumbo PUBLIC 
-            libs
-            libs/litehtml/src/gumbo
-            libs/litehtml/lib/gumbo/src
-        )
-        
-        if(MSVC)
-            target_compile_definitions(gumbo PRIVATE _CRT_SECURE_NO_WARNINGS)
-        endif()
-    else()
-        message(WARNING "Gumbo sources not found, litehtml may not link properly")
-    endif()
-    
-    # Build litehtml
-    file(GLOB_RECURSE LITEHTML_SOURCES "libs/litehtml/src/*.cpp")
-    
-    if(NOT LITEHTML_SOURCES)
-        message(FATAL_ERROR "No litehtml source files found")
-    endif()
-    
-    add_library(litehtml STATIC ${LITEHTML_SOURCES})
-    target_include_directories(litehtml PUBLIC 
-        libs/litehtml/include
-        libs/litehtml/src
-    )
-    
-    if(GUMBO_SOURCES)
-        target_link_libraries(litehtml PUBLIC gumbo)
-    endif()
-    
-    if(MSVC)
-        target_compile_options(litehtml PRIVATE /W3)
-        target_compile_definitions(litehtml PRIVATE NOMINMAX)
-    endif()
+    message(FATAL_ERROR "litehtml not found in libs/litehtml. Please check build.yml or download it manually.")
 endif()
 
-# Main application
+# Основное приложение
 set(SOURCES
     src/main.cpp
     src/epub/epub_parser.cpp
@@ -93,6 +52,11 @@ if(WIN32)
     target_sources(${PROJECT_NAME} PRIVATE app.manifest)
 endif()
 
+target_include_directories(${PROJECT_NAME} PRIVATE
+    src
+    libs/litehtml/include
+)
+
 target_link_libraries(${PROJECT_NAME} 
     litehtml
 )
@@ -103,6 +67,7 @@ if(WIN32)
         gdi32
         gdiplus
         msimg32
+        shlwapi
     )
 endif()
 

@@ -3,6 +3,11 @@
 #include <algorithm>
 #include <gdiplus.h>
 
+// Гарантируем, что заголовки знают, что мы используем UTF-8
+#ifndef LITEHTML_UTF8
+#define LITEHTML_UTF8
+#endif
+
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "msimg32.lib")
 
@@ -42,8 +47,6 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
                                                    const litehtml::document* doc,
                                                    litehtml::font_metrics* fm) {
     try {
-        LOG_DEBUG("create_font called, family:", font_description.family, "size:", font_description.size);
-        
         std::wstring font_face = utf8_to_wstring(font_description.family);
         
         if (font_face.empty()) {
@@ -90,8 +93,6 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
             return 0;
         }
         
-        LOG_DEBUG("Font created successfully, HFONT:", (void*)hfont);
-        
         if (fm) {
             HDC use_hdc = hdc_;
             bool temp_hdc = false;
@@ -122,11 +123,6 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
                 if (temp_hdc) {
                     ReleaseDC(NULL, use_hdc);
                 }
-            } else {
-                fm->height = font_size;
-                fm->ascent = font_size * 3 / 4;
-                fm->descent = font_size / 4;
-                fm->x_height = font_size / 2;
             }
         }
         
@@ -140,9 +136,6 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
         
     } catch (const std::exception& e) {
         LOG_ERROR("Exception in create_font:", e.what());
-        return 0;
-    } catch (...) {
-        LOG_ERROR("Unknown exception in create_font");
         return 0;
     }
 }
@@ -169,6 +162,7 @@ litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint
     
     try {
         std::wstring wtext = utf8_to_wstring(text);
+        if (wtext.empty()) return 0;
         
         HDC use_hdc = hdc_;
         bool temp_hdc = false;
@@ -233,8 +227,6 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
         
     } catch (const std::exception& e) {
         LOG_ERROR("Exception in draw_text:", e.what());
-    } catch (...) {
-        LOG_ERROR("Unknown exception in draw_text");
     }
 }
 
@@ -285,8 +277,7 @@ void LitehtmlContainer::draw_list_marker(litehtml::uint_ptr hdc, const litehtml:
                     SetBkMode(target_hdc, TRANSPARENT);
                     SetTextColor(target_hdc, web_color_to_colorref(marker.color));
                     
-                    litehtml::string text = marker.image;
-                    std::wstring wtext = utf8_to_wstring(text.c_str());
+                    std::wstring wtext = utf8_to_wstring(marker.image.c_str());
                     
                     if (marker.font != 0) {
                         auto it = fonts_.find(marker.font);
@@ -357,10 +348,7 @@ void LitehtmlContainer::draw_image(litehtml::uint_ptr hdc,
             img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB
         );
         
-        if (!bitmap) {
-            LOG_ERROR("Failed to create GDI+ bitmap");
-            return;
-        }
+        if (!bitmap) return;
         
         Gdiplus::BitmapData bitmapData;
         Gdiplus::Rect bitmap_rect(0, 0, img->width, img->height);
@@ -372,47 +360,41 @@ void LitehtmlContainer::draw_image(litehtml::uint_ptr hdc,
             &bitmapData
         );
         
-        if (status != Gdiplus::Ok) {
-            LOG_ERROR("Failed to lock bitmap bits");
-            delete bitmap;
-            return;
-        }
-        
-        for (int y = 0; y < img->height; y++) {
-            unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
-            const unsigned char* src = img->pixels.data() + y * img->width * img->channels;
-            
-            for (int x = 0; x < img->width; x++) {
-                if (img->channels == 4) {
-                    dest[x * 4 + 0] = src[x * 4 + 2];
-                    dest[x * 4 + 1] = src[x * 4 + 1];
-                    dest[x * 4 + 2] = src[x * 4 + 0];
-                    dest[x * 4 + 3] = src[x * 4 + 3];
-                } else if (img->channels == 3) {
-                    dest[x * 3 + 0] = src[x * 3 + 2];
-                    dest[x * 3 + 1] = src[x * 3 + 1];
-                    dest[x * 3 + 2] = src[x * 3 + 0];
+        if (status == Gdiplus::Ok) {
+            for (int y = 0; y < img->height; y++) {
+                unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
+                const unsigned char* src = img->pixels.data() + y * img->width * img->channels;
+                
+                for (int x = 0; x < img->width; x++) {
+                    if (img->channels == 4) {
+                        dest[x * 4 + 0] = src[x * 4 + 2];
+                        dest[x * 4 + 1] = src[x * 4 + 1];
+                        dest[x * 4 + 2] = src[x * 4 + 0];
+                        dest[x * 4 + 3] = src[x * 4 + 3];
+                    } else if (img->channels == 3) {
+                        dest[x * 3 + 0] = src[x * 3 + 2];
+                        dest[x * 3 + 1] = src[x * 3 + 1];
+                        dest[x * 3 + 2] = src[x * 3 + 0];
+                    }
                 }
             }
+            
+            bitmap->UnlockBits(&bitmapData);
+            
+            Gdiplus::Graphics graphics(target_hdc);
+            graphics.DrawImage(
+                bitmap,
+                layer.clip_box.x,
+                layer.clip_box.y,
+                layer.clip_box.width,
+                layer.clip_box.height
+            );
         }
-        
-        bitmap->UnlockBits(&bitmapData);
-        
-        Gdiplus::Graphics graphics(target_hdc);
-        graphics.DrawImage(
-            bitmap,
-            layer.clip_box.x,
-            layer.clip_box.y,
-            layer.clip_box.width,
-            layer.clip_box.height
-        );
         
         delete bitmap;
         
-    } catch (const std::exception& e) {
-        LOG_ERROR("Exception in draw_image:", e.what());
     } catch (...) {
-        LOG_ERROR("Unknown exception in draw_image");
+        LOG_ERROR("Exception in draw_image");
     }
 }
 
@@ -438,9 +420,7 @@ void LitehtmlContainer::draw_solid_fill(litehtml::uint_ptr hdc,
         HBRUSH brush = CreateSolidBrush(web_color_to_colorref(color));
         FillRect(target_hdc, &rect, brush);
         DeleteObject(brush);
-        
     } catch (...) {
-        LOG_ERROR("Exception in draw_solid_fill");
     }
 }
 
@@ -499,9 +479,7 @@ void LitehtmlContainer::draw_borders(litehtml::uint_ptr hdc,
         draw_border(draw_pos.left(), draw_pos.bottom(),
                    draw_pos.left(), draw_pos.top(),
                    borders.left);
-                   
     } catch (...) {
-        LOG_ERROR("Exception in draw_borders");
     }
 }
 
@@ -556,7 +534,6 @@ void LitehtmlContainer::transform_text(litehtml::string& text, litehtml::text_tr
         text = wstring_to_utf8(wtext);
         
     } catch (...) {
-        LOG_ERROR("Exception in transform_text");
     }
 }
 
@@ -574,11 +551,6 @@ void LitehtmlContainer::set_clip(const litehtml::position& pos,
     try {
         HRGN region = CreateRectRgn(pos.x, pos.y, pos.x + pos.width, pos.y + pos.height);
         
-        if (!region) {
-            LOG_ERROR("Failed to create clip region");
-            return;
-        }
-        
         if (clip_regions_.empty()) {
             SelectClipRgn(hdc_, region);
         } else {
@@ -588,7 +560,6 @@ void LitehtmlContainer::set_clip(const litehtml::position& pos,
         clip_regions_.push_back(region);
         
     } catch (...) {
-        LOG_ERROR("Exception in set_clip");
     }
 }
 
@@ -607,9 +578,7 @@ void LitehtmlContainer::del_clip() {
         } else {
             SelectClipRgn(hdc_, clip_regions_.back());
         }
-        
     } catch (...) {
-        LOG_ERROR("Exception in del_clip");
     }
 }
 
@@ -623,6 +592,8 @@ void LitehtmlContainer::get_viewport(litehtml::position& viewport) const {
 std::shared_ptr<litehtml::element> LitehtmlContainer::create_element(const char* tag_name,
                                                                       const litehtml::string_map& attributes,
                                                                       const std::shared_ptr<litehtml::document>& doc) {
+    // Returning nullptr allows litehtml to fallback to default generic element.
+    // However, explicit handling or logging can be added here if specific custom elements are needed.
     return nullptr;
 }
 
@@ -652,29 +623,12 @@ std::wstring LitehtmlContainer::utf8_to_wstring(const std::string& str) {
         return std::wstring();
     }
     
-    try {
-        int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), nullptr, 0);
-        if (size <= 0) {
-            LOG_ERROR("MultiByteToWideChar failed (size calculation)");
-            return std::wstring();
-        }
-        
-        std::wstring result(size, 0);
-        int result_size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), &result[0], size);
-        if (result_size <= 0) {
-            LOG_ERROR("MultiByteToWideChar failed (conversion)");
-            return std::wstring();
-        }
-        
-        return result;
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR("Exception in utf8_to_wstring:", e.what());
-        return std::wstring();
-    } catch (...) {
-        LOG_ERROR("Unknown exception in utf8_to_wstring");
-        return std::wstring();
-    }
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), nullptr, 0);
+    if (size <= 0) return std::wstring();
+    
+    std::wstring result(size, 0);
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), &result[0], size);
+    return result;
 }
 
 std::string LitehtmlContainer::wstring_to_utf8(const std::wstring& wstr) {
@@ -682,29 +636,12 @@ std::string LitehtmlContainer::wstring_to_utf8(const std::wstring& wstr) {
         return std::string();
     }
     
-    try {
-        int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), nullptr, 0, nullptr, nullptr);
-        if (size <= 0) {
-            LOG_ERROR("WideCharToMultiByte failed (size calculation)");
-            return std::string();
-        }
-        
-        std::string result(size, 0);
-        int result_size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), &result[0], size, nullptr, nullptr);
-        if (result_size <= 0) {
-            LOG_ERROR("WideCharToMultiByte failed (conversion)");
-            return std::string();
-        }
-        
-        return result;
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR("Exception in wstring_to_utf8:", e.what());
-        return std::string();
-    } catch (...) {
-        LOG_ERROR("Unknown exception in wstring_to_utf8");
-        return std::string();
-    }
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return std::string();
+    
+    std::string result(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), &result[0], size, nullptr, nullptr);
+    return result;
 }
 
 COLORREF LitehtmlContainer::web_color_to_colorref(litehtml::web_color color) {
