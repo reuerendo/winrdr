@@ -88,23 +88,42 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
             return 0;
         }
         
-        if (fm && hdc_) {
-            HFONT old_font = (HFONT)SelectObject(hdc_, hfont);
+        if (fm) {
+            HDC use_hdc = hdc_;
+            bool temp_hdc = false;
             
-            TEXTMETRICW tm;
-            if (GetTextMetricsW(hdc_, &tm)) {
-                fm->height = tm.tmHeight;
-                fm->ascent = tm.tmAscent;
-                fm->descent = tm.tmDescent;
-                fm->x_height = tm.tmHeight / 2;
+            if (!use_hdc) {
+                use_hdc = GetDC(NULL);
+                temp_hdc = true;
+            }
+            
+            if (use_hdc) {
+                HFONT old_font = (HFONT)SelectObject(use_hdc, hfont);
+                
+                TEXTMETRICW tm;
+                if (GetTextMetricsW(use_hdc, &tm)) {
+                    fm->height = tm.tmHeight;
+                    fm->ascent = tm.tmAscent;
+                    fm->descent = tm.tmDescent;
+                    fm->x_height = tm.tmHeight / 2;
+                } else {
+                    fm->height = font_size;
+                    fm->ascent = font_size * 3 / 4;
+                    fm->descent = font_size / 4;
+                    fm->x_height = font_size / 2;
+                }
+                
+                SelectObject(use_hdc, old_font);
+                
+                if (temp_hdc) {
+                    ReleaseDC(NULL, use_hdc);
+                }
             } else {
                 fm->height = font_size;
                 fm->ascent = font_size * 3 / 4;
                 fm->descent = font_size / 4;
                 fm->x_height = font_size / 2;
             }
-            
-            SelectObject(hdc_, old_font);
         }
         
         FontInfo info;
@@ -135,7 +154,7 @@ void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
 }
 
 litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
-    if (!text || !hdc_) {
+    if (!text) {
         return 0;
     }
     
@@ -147,12 +166,28 @@ litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint
     try {
         std::wstring wtext = utf8_to_wstring(text);
         
-        HFONT old_font = (HFONT)SelectObject(hdc_, it->second.hfont);
+        HDC use_hdc = hdc_;
+        bool temp_hdc = false;
+        
+        if (!use_hdc) {
+            use_hdc = GetDC(NULL);
+            temp_hdc = true;
+        }
+        
+        if (!use_hdc) {
+            return 0;
+        }
+        
+        HFONT old_font = (HFONT)SelectObject(use_hdc, it->second.hfont);
         
         SIZE sz = {0, 0};
-        GetTextExtentPoint32W(hdc_, wtext.c_str(), (int)wtext.length(), &sz);
+        GetTextExtentPoint32W(use_hdc, wtext.c_str(), (int)wtext.length(), &sz);
         
-        SelectObject(hdc_, old_font);
+        SelectObject(use_hdc, old_font);
+        
+        if (temp_hdc) {
+            ReleaseDC(NULL, use_hdc);
+        }
         
         return sz.cx;
         
