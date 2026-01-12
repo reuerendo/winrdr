@@ -1,7 +1,8 @@
 #pragma once
 
-#include <litehtml.h>
+#define NOMINMAX
 #include <windows.h>
+#include <litehtml.h>
 #include <string>
 #include <map>
 #include <vector>
@@ -20,11 +21,8 @@ public:
     }
     
     // Required litehtml interface methods
-    virtual litehtml::uint_ptr create_font(const char* face_name, 
-                                          int size, 
-                                          int weight, 
-                                          litehtml::font_style italic, 
-                                          unsigned int decoration,
+    virtual litehtml::uint_ptr create_font(const litehtml::font_description& font_description,
+                                          const litehtml::document* doc,
                                           litehtml::font_metrics* fm) override;
     
     virtual void delete_font(litehtml::uint_ptr hFont) override;
@@ -53,7 +51,26 @@ public:
                                const char* baseurl, 
                                litehtml::size& sz) override;
     
-    virtual void draw_background(litehtml::uint_ptr hdc, const litehtml::background_paint& bg) override;
+    virtual void draw_image(litehtml::uint_ptr hdc,
+                           const litehtml::background_layer& layer,
+                           const std::string& url,
+                           const std::string& base_url) override;
+    
+    virtual void draw_solid_fill(litehtml::uint_ptr hdc,
+                                const litehtml::background_layer& layer,
+                                const litehtml::web_color& color) override;
+    
+    virtual void draw_linear_gradient(litehtml::uint_ptr hdc,
+                                     const litehtml::background_layer& layer,
+                                     const litehtml::background_layer::linear_gradient& gradient) override;
+    
+    virtual void draw_radial_gradient(litehtml::uint_ptr hdc,
+                                     const litehtml::background_layer& layer,
+                                     const litehtml::background_layer::radial_gradient& gradient) override;
+    
+    virtual void draw_conic_gradient(litehtml::uint_ptr hdc,
+                                    const litehtml::background_layer& layer,
+                                    const litehtml::background_layer::conic_gradient& gradient) override;
     
     virtual void draw_borders(litehtml::uint_ptr hdc, 
                              const litehtml::borders& borders, 
@@ -70,6 +87,9 @@ public:
     virtual void on_anchor_click(const char* url, 
                                 const litehtml::element::ptr& el) override;
     
+    virtual void on_mouse_event(const litehtml::element::ptr& el,
+                               litehtml::mouse_event event) override;
+    
     virtual void set_cursor(const char* cursor) override;
     
     virtual void transform_text(litehtml::string& text, litehtml::text_transform tt) override;
@@ -83,7 +103,7 @@ public:
     
     virtual void del_clip() override;
     
-    virtual void get_client_rect(litehtml::position& client) const override;
+    virtual void get_viewport(litehtml::position& viewport) const override;
     
     virtual std::shared_ptr<litehtml::element> create_element(const char* tag_name,
                                                               const litehtml::string_map& attributes,
@@ -98,11 +118,7 @@ public:
 private:
     struct FontInfo {
         HFONT hfont;
-        int size;
-        int weight;
-        bool italic;
-        unsigned int decoration;
-        std::wstring face_name;
+        litehtml::font_description description;
     };
     
     HDC hdc_;
@@ -118,5 +134,5 @@ private:
     std::wstring utf8_to_wstring(const std::string& str);
     std::string wstring_to_utf8(const std::wstring& wstr);
     COLORREF web_color_to_colorref(litehtml::web_color color);
-    void apply_font_decoration(HDC hdc, const FontInfo& font, const litehtml::position& pos, const std::wstring& text);
+    void apply_text_decoration(HDC hdc, const litehtml::font_description& desc, const litehtml::position& pos, const std::wstring& text);
 };

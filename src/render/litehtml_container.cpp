@@ -38,7 +38,7 @@ LitehtmlContainer::~LitehtmlContainer() {
 litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_description& font_description,
                                                    const litehtml::document* doc,
                                                    litehtml::font_metrics* fm) {
-    std::wstring font_face = utf8_to_wstring(font_description.face_name);
+    std::wstring font_face = utf8_to_wstring(font_description.family);
     
     if (font_face.empty()) {
         font_face = L"Arial";
@@ -56,8 +56,8 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
     }
     
     BOOL is_italic = (font_description.style == litehtml::font_style_italic) ? TRUE : FALSE;
-    BOOL is_underline = (font_description.decoration & litehtml::font_decoration_underline) ? TRUE : FALSE;
-    BOOL is_strikeout = (font_description.decoration & litehtml::font_decoration_line_through) ? TRUE : FALSE;
+    BOOL is_underline = (font_description.decoration == litehtml::text_decoration_underline) ? TRUE : FALSE;
+    BOOL is_strikeout = (font_description.decoration == litehtml::text_decoration_line_through) ? TRUE : FALSE;
     
     HFONT hfont = CreateFontW(
         -MulDiv((int)font_description.size, DPI, 72),
@@ -76,7 +76,7 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
         font_face.c_str()
     );
     
-    if (fm) {
+    if (fm && hdc_) {
         HFONT old_font = (HFONT)SelectObject(hdc_, hfont);
         
         TEXTMETRICW tm;
@@ -92,11 +92,7 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
     
     FontInfo info;
     info.hfont = hfont;
-    info.size = (int)font_description.size;
-    info.weight = font_description.weight;
-    info.italic = (font_description.style == litehtml::font_style_italic);
-    info.decoration = font_description.decoration;
-    info.face_name = font_face;
+    info.description = font_description;
     
     litehtml::uint_ptr font_id = next_font_id_++;
     fonts_[font_id] = info;
@@ -114,9 +110,9 @@ void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
     }
 }
 
-litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
+int LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
     auto it = fonts_.find(hFont);
-    if (it == fonts_.end()) {
+    if (it == fonts_.end() || !hdc_) {
         return 0;
     }
     
@@ -143,6 +139,9 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
     }
     
     HDC target_hdc = hdc ? (HDC)hdc : hdc_;
+    if (!target_hdc) {
+        return;
+    }
     
     std::wstring wtext = utf8_to_wstring(text);
     
@@ -153,16 +152,16 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
     
     TextOutW(target_hdc, pos.x, pos.y, wtext.c_str(), (int)wtext.length());
     
-    apply_font_decoration(target_hdc, it->second, pos, wtext);
+    apply_text_decoration(target_hdc, it->second.description, pos, wtext);
     
     SelectObject(target_hdc, old_font);
 }
 
-litehtml::pixel_t LitehtmlContainer::pt_to_px(float pt) const {
-    return (litehtml::pixel_t)MulDiv((int)pt, DPI, 72);
+int LitehtmlContainer::pt_to_px(int pt) const {
+    return MulDiv(pt, DPI, 72);
 }
 
-litehtml::pixel_t LitehtmlContainer::get_default_font_size() const {
+int LitehtmlContainer::get_default_font_size() const {
     return DEFAULT_FONT_SIZE;
 }
 
@@ -172,6 +171,9 @@ const char* LitehtmlContainer::get_default_font_name() const {
 
 void LitehtmlContainer::draw_list_marker(litehtml::uint_ptr hdc, const litehtml::list_marker& marker) {
     HDC target_hdc = hdc ? (HDC)hdc : hdc_;
+    if (!target_hdc) {
+        return;
+    }
     
     HBRUSH brush = CreateSolidBrush(web_color_to_colorref(marker.color));
     HBRUSH old_brush = (HBRUSH)SelectObject(target_hdc, brush);
@@ -265,6 +267,9 @@ void LitehtmlContainer::draw_image(litehtml::uint_ptr hdc,
     }
     
     HDC target_hdc = hdc ? (HDC)hdc : hdc_;
+    if (!target_hdc) {
+        return;
+    }
     
     const epub::ImageData* img = image_cache_->getImage(url.c_str());
     if (img) {
@@ -327,6 +332,9 @@ void LitehtmlContainer::draw_solid_fill(litehtml::uint_ptr hdc,
                                        const litehtml::background_layer& layer,
                                        const litehtml::web_color& color) {
     HDC target_hdc = hdc ? (HDC)hdc : hdc_;
+    if (!target_hdc) {
+        return;
+    }
     
     RECT rect;
     rect.left = layer.clip_box.x;
@@ -364,6 +372,9 @@ void LitehtmlContainer::draw_borders(litehtml::uint_ptr hdc,
                                      const litehtml::position& draw_pos,
                                      bool root) {
     HDC target_hdc = hdc ? (HDC)hdc : hdc_;
+    if (!target_hdc) {
+        return;
+    }
     
     auto draw_border = [&](int x1, int y1, int x2, int y2, const litehtml::border& border) {
         if (border.width <= 0 || border.color.alpha == 0) {
@@ -459,6 +470,10 @@ void LitehtmlContainer::import_css(litehtml::string& text,
 
 void LitehtmlContainer::set_clip(const litehtml::position& pos,
                                 const litehtml::border_radiuses& bdr_radius) {
+    if (!hdc_) {
+        return;
+    }
+    
     HRGN region = CreateRectRgn(pos.x, pos.y, pos.x + pos.width, pos.y + pos.height);
     
     if (clip_regions_.empty()) {
@@ -471,16 +486,18 @@ void LitehtmlContainer::set_clip(const litehtml::position& pos,
 }
 
 void LitehtmlContainer::del_clip() {
-    if (!clip_regions_.empty()) {
-        HRGN region = clip_regions_.back();
-        DeleteObject(region);
-        clip_regions_.pop_back();
-        
-        if (clip_regions_.empty()) {
-            SelectClipRgn(hdc_, NULL);
-        } else {
-            SelectClipRgn(hdc_, clip_regions_.back());
-        }
+    if (!hdc_ || clip_regions_.empty()) {
+        return;
+    }
+    
+    HRGN region = clip_regions_.back();
+    DeleteObject(region);
+    clip_regions_.pop_back();
+    
+    if (clip_regions_.empty()) {
+        SelectClipRgn(hdc_, NULL);
+    } else {
+        SelectClipRgn(hdc_, clip_regions_.back());
     }
 }
 
@@ -544,12 +561,14 @@ COLORREF LitehtmlContainer::web_color_to_colorref(litehtml::web_color color) {
     return RGB(color.red, color.green, color.blue);
 }
 
-void LitehtmlContainer::apply_font_decoration(HDC hdc, const FontInfo& font, const litehtml::position& pos, const std::wstring& text) {
+void LitehtmlContainer::apply_text_decoration(HDC hdc, const litehtml::font_description& desc, const litehtml::position& pos, const std::wstring& text) {
     SIZE sz;
     GetTextExtentPoint32W(hdc, text.c_str(), (int)text.length(), &sz);
     
-    if (font.decoration & litehtml::font_decoration_underline) {
-        HPEN pen = CreatePen(PS_SOLID, 1, GetTextColor(hdc));
+    COLORREF text_color = GetTextColor(hdc);
+    
+    if (desc.decoration == litehtml::text_decoration_underline) {
+        HPEN pen = CreatePen(PS_SOLID, 1, text_color);
         HPEN old_pen = (HPEN)SelectObject(hdc, pen);
         
         int underline_y = pos.y + sz.cy - 2;
@@ -560,8 +579,8 @@ void LitehtmlContainer::apply_font_decoration(HDC hdc, const FontInfo& font, con
         DeleteObject(pen);
     }
     
-    if (font.decoration & litehtml::font_decoration_line_through) {
-        HPEN pen = CreatePen(PS_SOLID, 1, GetTextColor(hdc));
+    if (desc.decoration == litehtml::text_decoration_line_through) {
+        HPEN pen = CreatePen(PS_SOLID, 1, text_color);
         HPEN old_pen = (HPEN)SelectObject(hdc, pen);
         
         int strikethrough_y = pos.y + sz.cy / 2;
@@ -572,8 +591,8 @@ void LitehtmlContainer::apply_font_decoration(HDC hdc, const FontInfo& font, con
         DeleteObject(pen);
     }
     
-    if (font.decoration & litehtml::font_decoration_overline) {
-        HPEN pen = CreatePen(PS_SOLID, 1, GetTextColor(hdc));
+    if (desc.decoration == litehtml::text_decoration_overline) {
+        HPEN pen = CreatePen(PS_SOLID, 1, text_color);
         HPEN old_pen = (HPEN)SelectObject(hdc, pen);
         
         int overline_y = pos.y + 2;
