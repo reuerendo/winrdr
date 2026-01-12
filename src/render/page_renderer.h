@@ -33,6 +33,7 @@ private:
     };
     
     void calculatePages(HDC hdc);
+    void createMemoryDC();
     
     std::shared_ptr<litehtml::document> document_;
     LitehtmlContainer* container_;
@@ -49,4 +50,7 @@ private:
     int total_height_;
     
     std::string master_css_;
+    
+    HDC memory_hdc_;
+    HBITMAP memory_bitmap_;
 };
