@@ -25,6 +25,24 @@ jobs:
         Remove-Item litehtml.zip
         Write-Host "Litehtml downloaded successfully"
     
+    - name: Create Windows compatibility header
+      run: |
+        $stringsH = @"
+        #ifndef STRINGS_H_COMPAT
+        #define STRINGS_H_COMPAT
+        #ifdef _MSC_VER
+        #include <string.h>
+        #define strcasecmp _stricmp
+        #define strncasecmp _strnicmp
+        #else
+        #include <strings.h>
+        #endif
+        #endif
+        "@
+        New-Item -Path "libs" -ItemType Directory -Force
+        Set-Content -Path "libs/strings.h" -Value $stringsH
+        Write-Host "Created strings.h compatibility header"
+    
     - name: Download miniz
       run: |
         Invoke-WebRequest -Uri "https://github.com/richgel999/miniz/releases/download/2.1.0/miniz-2.1.0.zip" -OutFile "miniz.zip"
