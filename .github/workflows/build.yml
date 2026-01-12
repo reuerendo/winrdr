@@ -17,21 +17,13 @@ jobs:
     - name: Create libs directory
       run: New-Item -ItemType Directory -Force -Path libs
     
-    - name: Download and build litehtml
+    - name: Download litehtml
       run: |
         Invoke-WebRequest -Uri "https://github.com/litehtml/litehtml/archive/refs/heads/master.zip" -OutFile "litehtml.zip"
         Expand-Archive -Path "litehtml.zip" -DestinationPath "libs"
         Move-Item libs/litehtml-master libs/litehtml
         Remove-Item litehtml.zip
-        Write-Host "Litehtml structure:"
-        Get-ChildItem -Path libs/litehtml/src -Name
-    
-    - name: Download and build gumbo-parser
-      run: |
-        Invoke-WebRequest -Uri "https://github.com/google/gumbo-parser/archive/refs/heads/master.zip" -OutFile "gumbo.zip"
-        Expand-Archive -Path "gumbo.zip" -DestinationPath "libs"
-        Move-Item libs/gumbo-parser-master libs/gumbo-parser
-        Remove-Item gumbo.zip
+        Write-Host "Litehtml downloaded successfully"
     
     - name: Download miniz
       run: |
