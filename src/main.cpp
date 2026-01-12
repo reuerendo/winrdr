@@ -59,7 +59,8 @@ std::wstring GetExecutablePath() {
     std::wstring ws_path(path);
     size_t last_slash = ws_path.find_last_of(L"\\/");
     if (last_slash != std::wstring::npos) {
-        return ws_path.substr(0, last_slash + 1);
+        std::wstring result = ws_path.substr(0, last_slash);
+        return result + L"\\";
     }
     return L"";
 }
@@ -125,14 +126,20 @@ void LoadChapter(size_t index) {
     epub::FormattedContent content = g_parser.getChapterContent(index);
     
     if (g_css_debug_enabled) {
-        std::wstring exe_path = GetExecutablePath();
-        std::string debug_filename = "css_debug_chapter_" + std::to_string(index + 1) + ".txt";
-        std::string debug_file = wstring_to_utf8(exe_path) + debug_filename;
+        wchar_t exe_path[MAX_PATH];
+        GetModuleFileNameW(NULL, exe_path, MAX_PATH);
+        std::wstring exe_path_str(exe_path);
+        size_t last_slash = exe_path_str.find_last_of(L"\\/");
+        std::wstring exe_dir = exe_path_str.substr(0, last_slash + 1);
         
+        std::wstring debug_filename = L"css_debug_chapter_" + std::to_wstring(index + 1) + L".txt";
+        std::wstring debug_file_path = exe_dir + debug_filename;
+        std::string debug_file = wstring_to_utf8(debug_file_path);
+        
+        LOG_INFO("Saving CSS debug report to:", debug_file);
         g_parser.getHTMLProcessor().getCSSProcessor().saveDebugReport(debug_file);
-        LOG_INFO("CSS debug report saved:", debug_file);
         
-        std::wstring msg = L"CSS Debug отчёт сохранён:\n" + exe_path + utf8_to_wstring(debug_filename);
+        std::wstring msg = L"CSS Debug отчёт сохранён:\n" + debug_file_path;
         MessageBoxW(g_hwnd_main, msg.c_str(), L"CSS Debug", MB_OK | MB_ICONINFORMATION);
         
         g_parser.getHTMLProcessor().getCSSProcessor().enableDebugMode(false);
