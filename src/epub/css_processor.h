@@ -25,6 +25,7 @@ public:
     ~CSSProcessor();
     
     void clear();
+    void clearDocument();
     
     bool loadDefaultStyles(const std::string& css_file_path);
     bool parseStylesheet(const std::string& css, const std::string& source_path = "");

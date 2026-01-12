@@ -35,6 +35,11 @@ void CSSProcessor::clear() {
     debug_logger_.clear();
 }
 
+void CSSProcessor::clearDocument() {
+    inline_styles_.clear();
+    debug_logger_.clear();
+}
+
 void CSSProcessor::addInlineStyle(lxb_dom_element_t* element, const std::string& style_text) {
     if (!element || style_text.empty()) {
         return;
@@ -88,7 +93,7 @@ bool CSSProcessor::loadDefaultStyles(const std::string& css_file_path) {
     }
     
     LOG_INFO("Loaded default CSS, length:", css_content.length());
-    return parseStylesheet(css_content, css_file_path);
+    return parseStylesheet(css_content, "default:" + css_file_path);
 }
 
 void CSSProcessor::setDocument(lxb_html_document_t* document) {
@@ -108,13 +113,13 @@ bool CSSProcessor::parseStylesheet(const std::string& css, const std::string& so
         loaded_stylesheets_.insert(source_path);
     }
     
-    LOG_DEBUG("Parsing CSS stylesheet, length:", css.length());
+    LOG_DEBUG("Parsing CSS stylesheet, source:", source_path, "length:", css.length());
     
     const size_t rules_before = rules_.size();
     parseSimpleCSS(css);
     const size_t rules_added = rules_.size() - rules_before;
     
-    LOG_INFO("CSS rules added:", rules_added, "Total:", rules_.size());
+    LOG_INFO("CSS rules added:", rules_added, "Total rules:", rules_.size());
     return true;
 }
 
@@ -190,7 +195,7 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
                 const std::string& prop_value = prop_pair.second;
                 
                 auto it = matched_properties.find(prop_name);
-                if (it == matched_properties.end() || it->second.specificity < rule.specificity) {
+                if (it == matched_properties.end() || it->second.specificity <= rule.specificity) {
                     PropertyValue pv;
                     pv.value = prop_value;
                     pv.specificity = rule.specificity;

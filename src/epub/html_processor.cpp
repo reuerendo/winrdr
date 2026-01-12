@@ -32,6 +32,8 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     FormattedContent output;
     
+    css_processor_.clearDocument();
+    
     lxb_html_document_t* document = lxb_html_document_create();
     if (!document) {
         LOG_ERROR("Failed to create HTML document");
@@ -51,12 +53,12 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     css_processor_.setDocument(document);
     
-    if (zip && image_cache_) {
-        extractAndLoadImages(document, zip, base_path);
-    }
-    
     if (zip) {
         extractStylesheets(document, zip, base_path);
+    }
+    
+    if (zip && image_cache_) {
+        extractAndLoadImages(document, zip, base_path);
     }
     
     LOG_DEBUG("CSS processor has", css_processor_.getRulesCount(), "rules loaded");
@@ -389,95 +391,96 @@ void HTMLProcessor::extractAndLoadImages(lxb_html_document_t* document, ZipHandl
 
 void HTMLProcessor::extractStylesheets(lxb_html_document_t* document, ZipHandler* zip,
                                       const std::string& base_path) {
-    lxb_dom_collection_t* style_collection = lxb_dom_collection_create(&document->dom_document);
-    if (!style_collection) return;
-    
-    lxb_status_t status = lxb_dom_collection_init(style_collection, 16);
-    if (status != LXB_STATUS_OK) {
-        lxb_dom_collection_destroy(style_collection, true);
+    lxb_html_head_element_t* head_element = lxb_html_document_head_element(document);
+    if (!head_element) {
+        LOG_DEBUG("No head element found");
         return;
     }
     
-    lxb_html_head_element_t* head_element = lxb_html_document_head_element(document);
-    if (head_element) {
-        lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
-        
-        status = lxb_dom_elements_by_tag_name(
-            head,
-            style_collection,
-            reinterpret_cast<const lxb_char_t*>("style"),
-            5
-        );
-        
-        if (status == LXB_STATUS_OK) {
-            for (size_t i = 0; i < lxb_dom_collection_length(style_collection); i++) {
-                lxb_dom_element_t* element = lxb_dom_collection_element(style_collection, i);
-                std::string css_text = getNodeText(lxb_dom_interface_node(element));
-                if (!css_text.empty()) {
-                    LOG_DEBUG("Parsing inline stylesheet, length:", css_text.length());
-                    css_processor_.parseStylesheet(css_text, "inline_style_" + std::to_string(i));
-                }
-            }
-        }
-    }
-    
-    lxb_dom_collection_destroy(style_collection, true);
+    lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
     
     lxb_dom_collection_t* link_collection = lxb_dom_collection_create(&document->dom_document);
     if (!link_collection) return;
     
-    status = lxb_dom_collection_init(link_collection, 16);
+    lxb_status_t status = lxb_dom_collection_init(link_collection, 16);
     if (status != LXB_STATUS_OK) {
         lxb_dom_collection_destroy(link_collection, true);
         return;
     }
     
-    if (head_element) {
-        lxb_dom_element_t* head = lxb_dom_interface_element(head_element);
-        
-        status = lxb_dom_elements_by_tag_name(
-            head,
-            link_collection,
-            reinterpret_cast<const lxb_char_t*>("link"),
-            4
-        );
-        
-        if (status == LXB_STATUS_OK) {
-            for (size_t i = 0; i < lxb_dom_collection_length(link_collection); i++) {
-                lxb_dom_element_t* element = lxb_dom_collection_element(link_collection, i);
-                lxb_dom_node_t* node = lxb_dom_interface_node(element);
-                
-                std::string rel = getAttributeValue(node, "rel");
-                if (rel != "stylesheet") continue;
-                
-                std::string href = getAttributeValue(node, "href");
-                if (href.empty()) continue;
-                
-                std::string css_path = normalizePath(base_path, href);
-                LOG_DEBUG("Loading external stylesheet:", css_path);
-                
-                std::string css_content = zip->extractTextFile(css_path);
-                if (css_content.empty()) {
-                    std::string fallback_path = href;
-                    while (fallback_path.find("../") == 0) {
-                        fallback_path = fallback_path.substr(3);
-                    }
-                    LOG_DEBUG("Trying fallback path:", fallback_path);
-                    css_content = zip->extractTextFile(fallback_path);
+    status = lxb_dom_elements_by_tag_name(
+        head,
+        link_collection,
+        reinterpret_cast<const lxb_char_t*>("link"),
+        4
+    );
+    
+    if (status == LXB_STATUS_OK) {
+        for (size_t i = 0; i < lxb_dom_collection_length(link_collection); i++) {
+            lxb_dom_element_t* element = lxb_dom_collection_element(link_collection, i);
+            lxb_dom_node_t* node = lxb_dom_interface_node(element);
+            
+            std::string rel = getAttributeValue(node, "rel");
+            if (rel != "stylesheet") continue;
+            
+            std::string href = getAttributeValue(node, "href");
+            if (href.empty()) continue;
+            
+            std::string css_path = normalizePath(base_path, href);
+            LOG_DEBUG("Loading external stylesheet:", css_path);
+            
+            std::string css_content = zip->extractTextFile(css_path);
+            if (css_content.empty()) {
+                std::string fallback_path = href;
+                while (fallback_path.find("../") == 0) {
+                    fallback_path = fallback_path.substr(3);
+                }
+                LOG_DEBUG("Trying fallback path:", fallback_path);
+                css_content = zip->extractTextFile(fallback_path);
+                if (!css_content.empty()) {
                     css_path = fallback_path;
                 }
-                
-                if (!css_content.empty()) {
-                    LOG_DEBUG("Parsing external stylesheet, length:", css_content.length());
-                    css_processor_.parseStylesheet(css_content, css_path);
-                } else {
-                    LOG_WARNING("Failed to load external stylesheet:", css_path);
-                }
+            }
+            
+            if (!css_content.empty()) {
+                LOG_DEBUG("Parsing external stylesheet, path:", css_path, "length:", css_content.length());
+                css_processor_.parseStylesheet(css_content, css_path);
+            } else {
+                LOG_WARNING("Failed to load external stylesheet:", css_path);
             }
         }
     }
     
     lxb_dom_collection_destroy(link_collection, true);
+    
+    lxb_dom_collection_t* style_collection = lxb_dom_collection_create(&document->dom_document);
+    if (!style_collection) return;
+    
+    status = lxb_dom_collection_init(style_collection, 16);
+    if (status != LXB_STATUS_OK) {
+        lxb_dom_collection_destroy(style_collection, true);
+        return;
+    }
+    
+    status = lxb_dom_elements_by_tag_name(
+        head,
+        style_collection,
+        reinterpret_cast<const lxb_char_t*>("style"),
+        5
+    );
+    
+    if (status == LXB_STATUS_OK) {
+        for (size_t i = 0; i < lxb_dom_collection_length(style_collection); i++) {
+            lxb_dom_element_t* element = lxb_dom_collection_element(style_collection, i);
+            std::string css_text = getNodeText(lxb_dom_interface_node(element));
+            if (!css_text.empty()) {
+                LOG_DEBUG("Parsing inline stylesheet, length:", css_text.length());
+                css_processor_.parseStylesheet(css_text, "inline_style_" + std::to_string(i));
+            }
+        }
+    }
+    
+    lxb_dom_collection_destroy(style_collection, true);
 }
 
 std::string HTMLProcessor::getNodeText(lxb_dom_node_t* node) {
