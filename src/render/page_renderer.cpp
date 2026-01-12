@@ -2,7 +2,8 @@
 #include "../utils/logger.h"
 
 PageRenderer::PageRenderer()
-    : image_cache_(nullptr)
+    : container_(nullptr)
+    , image_cache_(nullptr)
     , current_page_(0)
     , viewport_width_(800)
     , viewport_height_(600)
@@ -124,18 +125,20 @@ void PageRenderer::setContent(const std::string& html, const std::string& css) {
     
     HDC hdc = GetDC(NULL);
     
-    container_ = std::make_unique<LitehtmlContainer>(hdc, image_cache_);
+    if (!container_) {
+        container_ = new LitehtmlContainer(hdc, image_cache_);
+    } else {
+        container_->setHDC(hdc);
+    }
     
-    litehtml::context context;
+    container_->setViewportSize(viewport_width_ - 2 * margin_, viewport_height_ - 2 * margin_);
     
     std::string combined_css = master_css_;
     if (!css.empty()) {
         combined_css += "\n" + css;
     }
     
-    context.load_master_stylesheet(combined_css.c_str());
-    
-    document_ = litehtml::document::createFromString(html.c_str(), container_.get(), &context);
+    document_ = litehtml::document::createFromString(html.c_str(), container_, combined_css, "");
     
     ReleaseDC(NULL, hdc);
     
@@ -149,6 +152,10 @@ void PageRenderer::setContent(const std::string& html, const std::string& css) {
 
 void PageRenderer::setImageCache(epub::ImageCache* cache) {
     image_cache_ = cache;
+    if (container_) {
+        delete container_;
+        container_ = nullptr;
+    }
 }
 
 void PageRenderer::setViewport(int width, int height, int margin) {
@@ -158,6 +165,10 @@ void PageRenderer::setViewport(int width, int height, int margin) {
     
     pages_.clear();
     current_page_ = 0;
+    
+    if (container_) {
+        container_->setViewportSize(width - 2 * margin, height - 2 * margin);
+    }
     
     LOG_DEBUG("Viewport set:", width, "x", height, "margin:", margin);
 }
@@ -173,7 +184,9 @@ void PageRenderer::calculatePages(HDC hdc) {
     int content_width = viewport_width_ - 2 * margin_;
     int content_height = viewport_height_ - 2 * margin_;
     
-    container_->setHDC(hdc);
+    if (container_) {
+        container_->setHDC(hdc);
+    }
     
     document_->render(content_width);
     
@@ -249,7 +262,9 @@ void PageRenderer::render(HDC hdc) {
         return;
     }
     
-    container_->setHDC(hdc);
+    if (container_) {
+        container_->setHDC(hdc);
+    }
     
     const PageInfo& page = pages_[current_page_];
     
@@ -267,12 +282,6 @@ void PageRenderer::render(HDC hdc) {
     clip_pos.y = margin_;
     clip_pos.width = viewport_width_ - 2 * margin_;
     clip_pos.height = viewport_height_ - 2 * margin_;
-    
-    litehtml::position draw_pos;
-    draw_pos.x = margin_;
-    draw_pos.y = margin_ - page.scroll_offset;
-    draw_pos.width = viewport_width_ - 2 * margin_;
-    draw_pos.height = total_height_;
     
     document_->draw((litehtml::uint_ptr)hdc, margin_, margin_ - page.scroll_offset, &clip_pos);
     

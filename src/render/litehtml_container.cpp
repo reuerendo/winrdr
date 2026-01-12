@@ -8,7 +8,7 @@
 
 namespace {
     const int DEFAULT_FONT_SIZE = 16;
-    const wchar_t* DEFAULT_FONT_NAME = L"Arial";
+    const char* DEFAULT_FONT_NAME = "Arial";
     const int DPI = 96;
 }
 
@@ -35,7 +35,7 @@ LitehtmlContainer::~LitehtmlContainer() {
     clip_regions_.clear();
 }
 
-litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::tchar_t* face_name,
+litehtml::uint_ptr LitehtmlContainer::create_font(const char* face_name,
                                                    int size,
                                                    int weight,
                                                    litehtml::font_style italic,
@@ -44,7 +44,7 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::tchar_t* face_
     std::wstring font_face = utf8_to_wstring(face_name);
     
     if (font_face.empty()) {
-        font_face = DEFAULT_FONT_NAME;
+        font_face = L"Arial";
     }
     
     int font_weight = FW_NORMAL;
@@ -117,7 +117,7 @@ void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
     }
 }
 
-int LitehtmlContainer::text_width(const litehtml::tchar_t* text, litehtml::uint_ptr hFont) {
+int LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
     auto it = fonts_.find(hFont);
     if (it == fonts_.end()) {
         return 0;
@@ -136,7 +136,7 @@ int LitehtmlContainer::text_width(const litehtml::tchar_t* text, litehtml::uint_
 }
 
 void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
-                                 const litehtml::tchar_t* text,
+                                 const char* text,
                                  litehtml::uint_ptr hFont,
                                  litehtml::web_color color,
                                  const litehtml::position& pos) {
@@ -161,7 +161,7 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
     SelectObject(target_hdc, old_font);
 }
 
-int LitehtmlContainer::pt_to_px(int pt) {
+int LitehtmlContainer::pt_to_px(int pt) const {
     return MulDiv(pt, DPI, 72);
 }
 
@@ -169,8 +169,8 @@ int LitehtmlContainer::get_default_font_size() const {
     return DEFAULT_FONT_SIZE;
 }
 
-const litehtml::tchar_t* LitehtmlContainer::get_default_font_name() const {
-    return "Arial";
+const char* LitehtmlContainer::get_default_font_name() const {
+    return DEFAULT_FONT_NAME;
 }
 
 void LitehtmlContainer::draw_list_marker(litehtml::uint_ptr hdc, const litehtml::list_marker& marker) {
@@ -213,7 +213,7 @@ void LitehtmlContainer::draw_list_marker(litehtml::uint_ptr hdc, const litehtml:
                 SetBkMode(target_hdc, TRANSPARENT);
                 SetTextColor(target_hdc, web_color_to_colorref(marker.color));
                 
-                litehtml::tstring text = marker.image;
+                litehtml::string text = marker.image;
                 std::wstring wtext = utf8_to_wstring(text.c_str());
                 
                 if (marker.font != 0) {
@@ -234,14 +234,14 @@ void LitehtmlContainer::draw_list_marker(litehtml::uint_ptr hdc, const litehtml:
     DeleteObject(brush);
 }
 
-void LitehtmlContainer::load_image(const litehtml::tchar_t* src,
-                                   const litehtml::tchar_t* baseurl,
+void LitehtmlContainer::load_image(const char* src,
+                                   const char* baseurl,
                                    bool redraw_on_ready) {
     // Images are already loaded by epub parser into image_cache_
 }
 
-void LitehtmlContainer::get_image_size(const litehtml::tchar_t* src,
-                                      const litehtml::tchar_t* baseurl,
+void LitehtmlContainer::get_image_size(const char* src,
+                                      const char* baseurl,
                                       litehtml::size& sz) {
     if (!image_cache_) {
         sz.width = 0;
@@ -371,11 +371,11 @@ void LitehtmlContainer::draw_borders(litehtml::uint_ptr hdc,
                borders.left);
 }
 
-void LitehtmlContainer::set_caption(const litehtml::tchar_t* caption) {
+void LitehtmlContainer::set_caption(const char* caption) {
     // Not used in our implementation
 }
 
-void LitehtmlContainer::set_base_url(const litehtml::tchar_t* base_url) {
+void LitehtmlContainer::set_base_url(const char* base_url) {
     // Base URL is handled by epub parser
 }
 
@@ -384,16 +384,16 @@ void LitehtmlContainer::link(const std::shared_ptr<litehtml::document>& doc,
     // CSS linking - not used
 }
 
-void LitehtmlContainer::on_anchor_click(const litehtml::tchar_t* url,
+void LitehtmlContainer::on_anchor_click(const char* url,
                                        const litehtml::element::ptr& el) {
     // Link clicks - not implemented yet
 }
 
-void LitehtmlContainer::set_cursor(const litehtml::tchar_t* cursor) {
+void LitehtmlContainer::set_cursor(const char* cursor) {
     // Cursor changes - not implemented
 }
 
-void LitehtmlContainer::transform_text(litehtml::tstring& text, litehtml::text_transform tt) {
+void LitehtmlContainer::transform_text(litehtml::string& text, litehtml::text_transform tt) {
     if (text.empty()) return;
     
     std::wstring wtext = utf8_to_wstring(text.c_str());
@@ -420,16 +420,14 @@ void LitehtmlContainer::transform_text(litehtml::tstring& text, litehtml::text_t
     text = wstring_to_utf8(wtext);
 }
 
-void LitehtmlContainer::import_css(litehtml::tstring& text,
-                                   const litehtml::tstring& url,
-                                   litehtml::tstring& baseurl) {
+void LitehtmlContainer::import_css(litehtml::string& text,
+                                   const litehtml::string& url,
+                                   litehtml::string& baseurl) {
     // CSS imports - not used
 }
 
 void LitehtmlContainer::set_clip(const litehtml::position& pos,
-                                const litehtml::border_radiuses& bdr_radius,
-                                bool valid_x,
-                                bool valid_y) {
+                                const litehtml::border_radiuses& bdr_radius) {
     HRGN region = CreateRectRgn(pos.x, pos.y, pos.x + pos.width, pos.y + pos.height);
     
     if (clip_regions_.empty()) {
@@ -462,7 +460,7 @@ void LitehtmlContainer::get_client_rect(litehtml::position& client) const {
     client.height = viewport_height_;
 }
 
-std::shared_ptr<litehtml::element> LitehtmlContainer::create_element(const litehtml::tchar_t* tag_name,
+std::shared_ptr<litehtml::element> LitehtmlContainer::create_element(const char* tag_name,
                                                                       const litehtml::string_map& attributes,
                                                                       const std::shared_ptr<litehtml::document>& doc) {
     return nullptr;
@@ -480,12 +478,12 @@ void LitehtmlContainer::get_media_features(litehtml::media_features& media) cons
     media.resolution = DPI;
 }
 
-void LitehtmlContainer::get_language(litehtml::tstring& language, litehtml::tstring& culture) const {
+void LitehtmlContainer::get_language(litehtml::string& language, litehtml::string& culture) const {
     language = "en";
     culture = "";
 }
 
-litehtml::tstring LitehtmlContainer::resolve_color(const litehtml::tstring& color) const {
+litehtml::string LitehtmlContainer::resolve_color(const litehtml::string& color) const {
     return color;
 }
 

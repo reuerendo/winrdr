@@ -35,7 +35,7 @@ private:
     void calculatePages(HDC hdc);
     
     std::shared_ptr<litehtml::document> document_;
-    std::unique_ptr<LitehtmlContainer> container_;
+    LitehtmlContainer* container_;
     
     epub::ImageCache* image_cache_;
     
