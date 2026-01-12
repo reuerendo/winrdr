@@ -42,6 +42,8 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
                                                    const litehtml::document* doc,
                                                    litehtml::font_metrics* fm) {
     try {
+        LOG_DEBUG("create_font called, family:", font_description.family, "size:", font_description.size);
+        
         std::wstring font_face = utf8_to_wstring(font_description.family);
         
         if (font_face.empty()) {
@@ -87,6 +89,8 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
             LOG_ERROR("Failed to create font:", font_description.family);
             return 0;
         }
+        
+        LOG_DEBUG("Font created successfully, HFONT:", (void*)hfont);
         
         if (fm) {
             HDC use_hdc = hdc_;
@@ -649,16 +653,26 @@ std::wstring LitehtmlContainer::utf8_to_wstring(const std::string& str) {
     }
     
     try {
-        int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+        int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), nullptr, 0);
         if (size <= 0) {
+            LOG_ERROR("MultiByteToWideChar failed (size calculation)");
             return std::wstring();
         }
         
-        std::wstring result(size - 1, 0);
-        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], size);
+        std::wstring result(size, 0);
+        int result_size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), &result[0], size);
+        if (result_size <= 0) {
+            LOG_ERROR("MultiByteToWideChar failed (conversion)");
+            return std::wstring();
+        }
+        
         return result;
         
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in utf8_to_wstring:", e.what());
+        return std::wstring();
     } catch (...) {
+        LOG_ERROR("Unknown exception in utf8_to_wstring");
         return std::wstring();
     }
 }
@@ -669,16 +683,26 @@ std::string LitehtmlContainer::wstring_to_utf8(const std::wstring& wstr) {
     }
     
     try {
-        int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), nullptr, 0, nullptr, nullptr);
         if (size <= 0) {
+            LOG_ERROR("WideCharToMultiByte failed (size calculation)");
             return std::string();
         }
         
-        std::string result(size - 1, 0);
-        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], size, nullptr, nullptr);
+        std::string result(size, 0);
+        int result_size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), &result[0], size, nullptr, nullptr);
+        if (result_size <= 0) {
+            LOG_ERROR("WideCharToMultiByte failed (conversion)");
+            return std::string();
+        }
+        
         return result;
         
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in wstring_to_utf8:", e.what());
+        return std::string();
     } catch (...) {
+        LOG_ERROR("Unknown exception in wstring_to_utf8");
         return std::string();
     }
 }
