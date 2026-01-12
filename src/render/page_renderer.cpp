@@ -15,6 +15,8 @@ PageRenderer::PageRenderer()
     , viewport_height_(600)
     , margin_(40)
     , total_height_(0)
+    , memory_hdc_(nullptr)
+    , memory_bitmap_(nullptr)
 {
     if (!g_gdiplus_initialized) {
         Gdiplus::GdiplusStartupInput gdiplusStartupInput;
@@ -131,6 +133,64 @@ PageRenderer::~PageRenderer() {
         delete container_;
         container_ = nullptr;
     }
+    
+    if (memory_bitmap_) {
+        DeleteObject(memory_bitmap_);
+        memory_bitmap_ = nullptr;
+    }
+    
+    if (memory_hdc_) {
+        DeleteDC(memory_hdc_);
+        memory_hdc_ = nullptr;
+    }
+}
+
+void PageRenderer::createMemoryDC() {
+    if (memory_bitmap_) {
+        DeleteObject(memory_bitmap_);
+        memory_bitmap_ = nullptr;
+    }
+    
+    if (memory_hdc_) {
+        DeleteDC(memory_hdc_);
+        memory_hdc_ = nullptr;
+    }
+    
+    HDC screen_hdc = GetDC(NULL);
+    if (!screen_hdc) {
+        LOG_ERROR("Failed to get screen DC");
+        return;
+    }
+    
+    memory_hdc_ = CreateCompatibleDC(screen_hdc);
+    if (!memory_hdc_) {
+        LOG_ERROR("Failed to create compatible DC");
+        ReleaseDC(NULL, screen_hdc);
+        return;
+    }
+    
+    int content_width = viewport_width_ - 2 * margin_;
+    int content_height = viewport_height_ - 2 * margin_;
+    
+    if (content_width <= 0 || content_height <= 0) {
+        content_width = 600;
+        content_height = 800;
+    }
+    
+    memory_bitmap_ = CreateCompatibleBitmap(screen_hdc, content_width, content_height);
+    if (!memory_bitmap_) {
+        LOG_ERROR("Failed to create compatible bitmap");
+        DeleteDC(memory_hdc_);
+        memory_hdc_ = nullptr;
+        ReleaseDC(NULL, screen_hdc);
+        return;
+    }
+    
+    SelectObject(memory_hdc_, memory_bitmap_);
+    
+    ReleaseDC(NULL, screen_hdc);
+    
+    LOG_DEBUG("Memory DC created successfully");
 }
 
 void PageRenderer::setContent(const std::string& html, const std::string& css) {
@@ -147,24 +207,20 @@ void PageRenderer::setContent(const std::string& html, const std::string& css) {
             return;
         }
         
-        HDC screen_hdc = GetDC(NULL);
-        if (!screen_hdc) {
-            LOG_ERROR("Failed to get screen DC");
-            return;
+        if (!memory_hdc_) {
+            createMemoryDC();
         }
         
-        HDC memory_hdc = CreateCompatibleDC(screen_hdc);
-        if (!memory_hdc) {
-            LOG_ERROR("Failed to create compatible DC");
-            ReleaseDC(NULL, screen_hdc);
+        if (!memory_hdc_) {
+            LOG_ERROR("Failed to create memory DC");
             return;
         }
         
         if (!container_) {
-            container_ = new LitehtmlContainer(memory_hdc, image_cache_);
+            container_ = new LitehtmlContainer(memory_hdc_, image_cache_);
             LOG_DEBUG("Created new LitehtmlContainer");
         } else {
-            container_->setHDC(memory_hdc);
+            container_->setHDC(memory_hdc_);
             LOG_DEBUG("Reused existing LitehtmlContainer");
         }
         
@@ -173,8 +229,6 @@ void PageRenderer::setContent(const std::string& html, const std::string& css) {
         
         if (content_width <= 0 || content_height <= 0) {
             LOG_ERROR("Invalid content dimensions:", content_width, "x", content_height);
-            DeleteDC(memory_hdc);
-            ReleaseDC(NULL, screen_hdc);
             return;
         }
         
@@ -192,9 +246,6 @@ void PageRenderer::setContent(const std::string& html, const std::string& css) {
             container_, 
             combined_css.c_str()
         );
-        
-        DeleteDC(memory_hdc);
-        ReleaseDC(NULL, screen_hdc);
         
         if (!document_) {
             LOG_ERROR("Failed to create litehtml document");
@@ -230,12 +281,20 @@ void PageRenderer::setViewport(int width, int height, int margin) {
     pages_.clear();
     current_page_ = 0;
     
+    if (memory_hdc_) {
+        createMemoryDC();
+    }
+    
     if (container_) {
         int content_width = width - 2 * margin;
         int content_height = height - 2 * margin;
         
         if (content_width > 0 && content_height > 0) {
             container_->setViewportSize(content_width, content_height);
+            
+            if (memory_hdc_) {
+                container_->setHDC(memory_hdc_);
+            }
         }
     }
     
@@ -259,8 +318,8 @@ void PageRenderer::calculatePages(HDC hdc) {
             return;
         }
         
-        if (container_) {
-            container_->setHDC(hdc);
+        if (container_ && memory_hdc_) {
+            container_->setHDC(memory_hdc_);
         }
         
         LOG_DEBUG("Rendering document with width:", content_width);
@@ -304,10 +363,8 @@ void PageRenderer::calculatePages(HDC hdc) {
 
 bool PageRenderer::nextPage() {
     if (pages_.empty()) {
-        HDC hdc = GetDC(NULL);
-        if (hdc) {
-            calculatePages(hdc);
-            ReleaseDC(NULL, hdc);
+        if (memory_hdc_) {
+            calculatePages(memory_hdc_);
         }
     }
     
@@ -330,10 +387,8 @@ bool PageRenderer::prevPage() {
 
 void PageRenderer::goToPage(size_t page) {
     if (pages_.empty()) {
-        HDC hdc = GetDC(NULL);
-        if (hdc) {
-            calculatePages(hdc);
-            ReleaseDC(NULL, hdc);
+        if (memory_hdc_) {
+            calculatePages(memory_hdc_);
         }
     }
     
@@ -356,7 +411,12 @@ void PageRenderer::render(HDC hdc) {
     
     try {
         if (pages_.empty()) {
-            calculatePages(hdc);
+            if (memory_hdc_) {
+                calculatePages(memory_hdc_);
+            } else {
+                LOG_ERROR("No memory DC available");
+                return;
+            }
         }
         
         if (pages_.empty() || current_page_ >= pages_.size()) {
@@ -364,8 +424,8 @@ void PageRenderer::render(HDC hdc) {
             return;
         }
         
-        if (container_) {
-            container_->setHDC(hdc);
+        if (container_ && memory_hdc_) {
+            container_->setHDC(memory_hdc_);
         }
         
         const PageInfo& page = pages_[current_page_];
