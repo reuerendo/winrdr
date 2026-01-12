@@ -1,26 +1,22 @@
 #pragma once
 
+#include <windows.h>
+#include <litehtml.h>
 #include <string>
 #include <vector>
-#include <windows.h>
-#include "../epub/formatted_text.h"
+#include <memory>
+#include "litehtml_container.h"
 #include "../epub/image_cache.h"
-
-struct PageBreak {
-    size_t element_start;
-    size_t element_count;
-};
 
 class PageRenderer {
 public:
     PageRenderer();
     ~PageRenderer();
     
-    void setContent(const epub::FormattedContent& content);
+    void setContent(const std::string& html, const std::string& css);
     void setImageCache(epub::ImageCache* cache);
     
     void setViewport(int width, int height, int margin);
-    void setFont(const std::wstring& font_name, int font_size);
     
     size_t getPageCount() const { return pages_.size(); }
     size_t getCurrentPage() const { return current_page_; }
@@ -32,34 +28,25 @@ public:
     void render(HDC hdc);
 
 private:
+    struct PageInfo {
+        int scroll_offset;
+    };
+    
     void calculatePages(HDC hdc);
-    void renderElement(HDC hdc, const epub::TextElement& elem, RECT& rect, int& y_pos);
     
-    HFONT createFont(int size, bool bold, bool italic, bool underline, bool strikethrough);
-    HFONT selectFontForStyle(epub::TextStyle style);
-    int measureElementHeight(HDC hdc, const epub::TextElement& elem, int width);
+    std::shared_ptr<litehtml::document> document_;
+    std::unique_ptr<LitehtmlContainer> container_;
     
-    void drawText(HDC hdc, const std::wstring& text, RECT& rect, 
-                  epub::TextAlign align, bool bold, bool italic);
-    void drawImage(HDC hdc, const std::string& image_id, RECT& rect, int& y_pos);
+    epub::ImageCache* image_cache_;
     
-    epub::FormattedContent content_;
-    std::vector<PageBreak> pages_;
+    std::vector<PageInfo> pages_;
     size_t current_page_;
     
     int viewport_width_;
     int viewport_height_;
     int margin_;
     
-    std::wstring font_name_;
-    int font_size_;
+    int total_height_;
     
-    HFONT normal_font_;
-    HFONT bold_font_;
-    HFONT italic_font_;
-    HFONT bold_italic_font_;
-    HFONT mono_font_;
-    HFONT mono_bold_font_;
-    
-    epub::ImageCache* image_cache_;
+    std::string master_css_;
 };

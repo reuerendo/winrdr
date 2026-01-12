@@ -6,7 +6,6 @@
 namespace epub {
 
 EpubParser::EpubParser() {
-    html_parser_.setImageCache(&image_cache_);
 }
 
 EpubParser::~EpubParser() { 
@@ -326,8 +325,12 @@ void EpubParser::mapTOCToSpine() {
     }
 }
 
-FormattedContent EpubParser::getChapterContent(size_t index) {
-    if (index >= spine_.size()) return FormattedContent();
+ChapterContent EpubParser::getChapterContent(size_t index) {
+    ChapterContent content;
+    
+    if (index >= spine_.size()) {
+        return content;
+    }
     
     std::string path = spine_[index].href;
     
@@ -354,41 +357,136 @@ FormattedContent EpubParser::getChapterContent(size_t index) {
     
     if (html.empty()) {
         LOG_ERROR("Failed to load chapter HTML");
-        return FormattedContent();
+        return content;
     }
     
     LOG_DEBUG("Chapter HTML loaded, length:", html.length());
     
-    return html_parser_.parse(html, &zip_, content_dir_);
+    content.html = html;
+    content.css = extractCSS(html);
+    
+    loadImages(html);
+    
+    return content;
 }
 
-std::string EpubParser::getChapterText(size_t index) {
-    if (index >= spine_.size()) return "";
+std::string EpubParser::extractCSS(const std::string& html) {
+    std::string css;
     
-    std::string path = spine_[index].href;
+    size_t pos = 0;
+    while ((pos = html.find("<style", pos)) != std::string::npos) {
+        size_t start = html.find(">", pos);
+        if (start == std::string::npos) break;
+        start++;
+        
+        size_t end = html.find("</style>", start);
+        if (end == std::string::npos) break;
+        
+        css += html.substr(start, end - start) + "\n";
+        
+        pos = end;
+    }
     
+    pos = 0;
+    while ((pos = html.find("<link", pos)) != std::string::npos) {
+        size_t end = html.find(">", pos);
+        if (end == std::string::npos) break;
+        
+        std::string link_tag = html.substr(pos, end - pos);
+        
+        if (link_tag.find("stylesheet") != std::string::npos) {
+            std::string href = extractAttribute(link_tag, "href");
+            if (!href.empty()) {
+                std::string css_path = normalizePath(content_dir_, href);
+                std::string external_css = zip_.extractTextFile(css_path);
+                if (!external_css.empty()) {
+                    css += external_css + "\n";
+                    LOG_DEBUG("Loaded external CSS:", css_path);
+                }
+            }
+        }
+        
+        pos = end;
+    }
+    
+    return css;
+}
+
+void EpubParser::loadImages(const std::string& html) {
+    size_t pos = 0;
+    while ((pos = html.find("<img", pos)) != std::string::npos) {
+        size_t end = html.find(">", pos);
+        if (end == std::string::npos) break;
+        
+        std::string img_tag = html.substr(pos, end - pos);
+        processImageTag(img_tag);
+        
+        pos = end;
+    }
+}
+
+void EpubParser::processImageTag(const std::string& img_tag) {
+    std::string src = extractAttribute(img_tag, "src");
+    if (src.empty()) {
+        return;
+    }
+    
+    std::string img_path = normalizePath(content_dir_, src);
+    
+    LOG_DEBUG("Loading image:", img_path);
+    
+    std::vector<char> img_data;
+    if (zip_.extractFile(img_path, img_data)) {
+        if (image_cache_.loadImage(img_path, img_data)) {
+            LOG_DEBUG("Image loaded successfully:", img_path);
+        } else {
+            LOG_WARNING("Failed to load image:", img_path);
+        }
+    } else {
+        LOG_WARNING("Failed to extract image file:", img_path);
+    }
+}
+
+std::string EpubParser::extractAttribute(const std::string& tag, const std::string& attr) {
+    std::string search = attr + "=\"";
+    size_t pos = tag.find(search);
+    if (pos == std::string::npos) {
+        search = attr + "='";
+        pos = tag.find(search);
+    }
+    
+    if (pos == std::string::npos) {
+        return "";
+    }
+    
+    pos += search.length();
+    size_t end = tag.find_first_of("\"'", pos);
+    if (end == std::string::npos) {
+        return "";
+    }
+    
+    return tag.substr(pos, end - pos);
+}
+
+std::string EpubParser::normalizePath(const std::string& base, const std::string& relative) {
+    if (relative.empty()) {
+        return "";
+    }
+    
+    if (relative[0] == '/') {
+        return relative.substr(1);
+    }
+    
+    std::string path = relative;
     while (path.find("../") == 0) {
         path = path.substr(3);
     }
     
-    if (!content_dir_.empty() && path.find(content_dir_) != 0) {
-        path = content_dir_ + path;
+    if (!base.empty()) {
+        return base + path;
     }
     
-    LOG_DEBUG("Loading chapter from path:", path);
-    
-    std::string html = zip_.extractTextFile(path);
-    
-    if (html.empty()) {
-        LOG_WARNING("Failed to extract chapter, trying without content_dir");
-        path = spine_[index].href;
-        while (path.find("../") == 0) {
-            path = path.substr(3);
-        }
-        html = zip_.extractTextFile(path);
-    }
-    
-    return extractTextFromHTML(html);
+    return path;
 }
 
 std::string EpubParser::findTagContent(const std::string& xml, const std::string& tag) {
@@ -405,51 +503,6 @@ std::string EpubParser::findTagContent(const std::string& xml, const std::string
     if (end == std::string::npos) return "";
     
     return xml.substr(start, end - start);
-}
-
-std::string EpubParser::extractTextFromHTML(const std::string& html) {
-    std::string text;
-    bool in_tag = false;
-    bool in_script = false;
-    bool in_style = false;
-    
-    for (size_t i = 0; i < html.length(); i++) {
-        if (html[i] == '<') {
-            in_tag = true;
-            
-            if (i + 7 < html.length() && html.substr(i, 7) == "<script") in_script = true;
-            if (i + 6 < html.length() && html.substr(i, 6) == "<style") in_style = true;
-            if (i + 9 < html.length() && html.substr(i, 9) == "</script>") in_script = false;
-            if (i + 8 < html.length() && html.substr(i, 8) == "</style>") in_style = false;
-            
-            if (i + 3 < html.length()) {
-                std::string tag = html.substr(i, 3);
-                if (tag == "<p>" || tag == "<br" || tag == "<di") {
-                    text += "\n";
-                }
-            }
-        } else if (html[i] == '>') {
-            in_tag = false;
-        } else if (!in_tag && !in_script && !in_style) {
-            text += html[i];
-        }
-    }
-    
-    std::string result;
-    for (size_t i = 0; i < text.length(); i++) {
-        if (text[i] == '&') {
-            if (text.substr(i, 6) == "&nbsp;") { result += ' '; i += 5; }
-            else if (text.substr(i, 4) == "&lt;") { result += '<'; i += 3; }
-            else if (text.substr(i, 4) == "&gt;") { result += '>'; i += 3; }
-            else if (text.substr(i, 5) == "&amp;") { result += '&'; i += 4; }
-            else if (text.substr(i, 6) == "&quot;") { result += '"'; i += 5; }
-            else result += text[i];
-        } else {
-            result += text[i];
-        }
-    }
-    
-    return result;
 }
 
 size_t EpubParser::findChapterByHref(const std::string& href) const {

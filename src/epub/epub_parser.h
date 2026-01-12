@@ -1,8 +1,6 @@
 #pragma once
 
 #include "zip_handler.h"
-#include "formatted_text.h"
-#include "html_parser.h"
 #include "image_cache.h"
 #include "toc_parser.h"
 #include <string>
@@ -23,6 +21,11 @@ struct Metadata {
     std::string language;
 };
 
+struct ChapterContent {
+    std::string html;
+    std::string css;
+};
+
 class EpubParser {
 public:
     EpubParser();
@@ -35,8 +38,7 @@ public:
     const std::vector<SpineItem>& getSpine() const { return spine_; }
     const std::vector<TOCItem>& getTOC() const { return toc_parser_.getItems(); }
     
-    FormattedContent getChapterContent(size_t index);
-    std::string getChapterText(size_t index);
+    ChapterContent getChapterContent(size_t index);
     size_t getChapterCount() const { return spine_.size(); }
     
     ImageCache& getImageCache() { return image_cache_; }
@@ -51,10 +53,15 @@ private:
     bool parseTOC();
     void generateFallbackTOC();
     
-    std::string extractTextFromHTML(const std::string& html);
     std::string findTagContent(const std::string& xml, const std::string& tag);
     std::string findNCXPath();
     std::string tryExtractChapterTitle(const std::string& html);
+    
+    std::string extractCSS(const std::string& html);
+    void loadImages(const std::string& html);
+    void processImageTag(const std::string& img_tag);
+    std::string extractAttribute(const std::string& tag, const std::string& attr);
+    std::string normalizePath(const std::string& base, const std::string& relative);
     
     ZipHandler zip_;
     std::string opf_path_;
@@ -63,7 +70,6 @@ private:
     std::vector<SpineItem> spine_;
     std::unordered_map<std::string, SpineItem> manifest_;
     
-    HTMLParserNew html_parser_;
     ImageCache image_cache_;
     TOCParser toc_parser_;
 };
