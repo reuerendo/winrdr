@@ -19,6 +19,7 @@ LitehtmlContainer::LitehtmlContainer(HDC hdc, epub::ImageCache* image_cache)
     , viewport_width_(600)
     , viewport_height_(800)
 {
+    LOG_DEBUG("LitehtmlContainer created");
 }
 
 LitehtmlContainer::~LitehtmlContainer() {
@@ -33,70 +34,94 @@ LitehtmlContainer::~LitehtmlContainer() {
         DeleteObject(region);
     }
     clip_regions_.clear();
+    
+    LOG_DEBUG("LitehtmlContainer destroyed");
 }
 
 litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_description& font_description,
                                                    const litehtml::document* doc,
                                                    litehtml::font_metrics* fm) {
-    std::wstring font_face = utf8_to_wstring(font_description.family);
-    
-    if (font_face.empty()) {
-        font_face = L"Arial";
-    }
-    
-    int font_weight = FW_NORMAL;
-    if (font_description.weight >= 700) {
-        font_weight = FW_BOLD;
-    } else if (font_description.weight >= 600) {
-        font_weight = FW_SEMIBOLD;
-    } else if (font_description.weight >= 300) {
-        font_weight = FW_NORMAL;
-    } else {
-        font_weight = FW_LIGHT;
-    }
-    
-    BOOL is_italic = (font_description.style == litehtml::font_style_italic) ? TRUE : FALSE;
-    BOOL is_underline = FALSE;
-    BOOL is_strikeout = FALSE;
-    
-    HFONT hfont = CreateFontW(
-        -MulDiv((int)font_description.size, DPI, 72),
-        0,
-        0,
-        0,
-        font_weight,
-        is_italic,
-        is_underline,
-        is_strikeout,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        DEFAULT_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE,
-        font_face.c_str()
-    );
-    
-    if (fm && hdc_) {
-        HFONT old_font = (HFONT)SelectObject(hdc_, hfont);
+    try {
+        std::wstring font_face = utf8_to_wstring(font_description.family);
         
-        TEXTMETRICW tm;
-        GetTextMetricsW(hdc_, &tm);
+        if (font_face.empty()) {
+            font_face = L"Arial";
+        }
         
-        fm->height = tm.tmHeight;
-        fm->ascent = tm.tmAscent;
-        fm->descent = tm.tmDescent;
-        fm->x_height = tm.tmHeight / 2;
+        int font_weight = FW_NORMAL;
+        if (font_description.weight >= 700) {
+            font_weight = FW_BOLD;
+        } else if (font_description.weight >= 600) {
+            font_weight = FW_SEMIBOLD;
+        } else if (font_description.weight >= 300) {
+            font_weight = FW_NORMAL;
+        } else {
+            font_weight = FW_LIGHT;
+        }
         
-        SelectObject(hdc_, old_font);
+        BOOL is_italic = (font_description.style == litehtml::font_style_italic) ? TRUE : FALSE;
+        
+        int font_size = (int)font_description.size;
+        if (font_size <= 0) {
+            font_size = DEFAULT_FONT_SIZE;
+        }
+        
+        HFONT hfont = CreateFontW(
+            -MulDiv(font_size, DPI, 72),
+            0,
+            0,
+            0,
+            font_weight,
+            is_italic,
+            FALSE,
+            FALSE,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_DONTCARE,
+            font_face.c_str()
+        );
+        
+        if (!hfont) {
+            LOG_ERROR("Failed to create font:", font_description.family);
+            return 0;
+        }
+        
+        if (fm && hdc_) {
+            HFONT old_font = (HFONT)SelectObject(hdc_, hfont);
+            
+            TEXTMETRICW tm;
+            if (GetTextMetricsW(hdc_, &tm)) {
+                fm->height = tm.tmHeight;
+                fm->ascent = tm.tmAscent;
+                fm->descent = tm.tmDescent;
+                fm->x_height = tm.tmHeight / 2;
+            } else {
+                fm->height = font_size;
+                fm->ascent = font_size * 3 / 4;
+                fm->descent = font_size / 4;
+                fm->x_height = font_size / 2;
+            }
+            
+            SelectObject(hdc_, old_font);
+        }
+        
+        FontInfo info;
+        info.hfont = hfont;
+        
+        litehtml::uint_ptr font_id = next_font_id_++;
+        fonts_[font_id] = info;
+        
+        return font_id;
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in create_font:", e.what());
+        return 0;
+    } catch (...) {
+        LOG_ERROR("Unknown exception in create_font");
+        return 0;
     }
-    
-    FontInfo info;
-    info.hfont = hfont;
-    
-    litehtml::uint_ptr font_id = next_font_id_++;
-    fonts_[font_id] = info;
-    
-    return font_id;
 }
 
 void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
@@ -110,21 +135,30 @@ void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
 }
 
 litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
-    auto it = fonts_.find(hFont);
-    if (it == fonts_.end() || !hdc_) {
+    if (!text || !hdc_) {
         return 0;
     }
     
-    std::wstring wtext = utf8_to_wstring(text);
+    auto it = fonts_.find(hFont);
+    if (it == fonts_.end()) {
+        return 0;
+    }
     
-    HFONT old_font = (HFONT)SelectObject(hdc_, it->second.hfont);
-    
-    SIZE sz;
-    GetTextExtentPoint32W(hdc_, wtext.c_str(), (int)wtext.length(), &sz);
-    
-    SelectObject(hdc_, old_font);
-    
-    return sz.cx;
+    try {
+        std::wstring wtext = utf8_to_wstring(text);
+        
+        HFONT old_font = (HFONT)SelectObject(hdc_, it->second.hfont);
+        
+        SIZE sz = {0, 0};
+        GetTextExtentPoint32W(hdc_, wtext.c_str(), (int)wtext.length(), &sz);
+        
+        SelectObject(hdc_, old_font);
+        
+        return sz.cx;
+        
+    } catch (...) {
+        return 0;
+    }
 }
 
 void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
@@ -132,6 +166,10 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
                                  litehtml::uint_ptr hFont,
                                  litehtml::web_color color,
                                  const litehtml::position& pos) {
+    if (!text) {
+        return;
+    }
+    
     auto it = fonts_.find(hFont);
     if (it == fonts_.end()) {
         return;
@@ -142,16 +180,23 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
         return;
     }
     
-    std::wstring wtext = utf8_to_wstring(text);
-    
-    HFONT old_font = (HFONT)SelectObject(target_hdc, it->second.hfont);
-    
-    SetBkMode(target_hdc, TRANSPARENT);
-    SetTextColor(target_hdc, web_color_to_colorref(color));
-    
-    TextOutW(target_hdc, pos.x, pos.y, wtext.c_str(), (int)wtext.length());
-    
-    SelectObject(target_hdc, old_font);
+    try {
+        std::wstring wtext = utf8_to_wstring(text);
+        
+        HFONT old_font = (HFONT)SelectObject(target_hdc, it->second.hfont);
+        
+        SetBkMode(target_hdc, TRANSPARENT);
+        SetTextColor(target_hdc, web_color_to_colorref(color));
+        
+        TextOutW(target_hdc, pos.x, pos.y, wtext.c_str(), (int)wtext.length());
+        
+        SelectObject(target_hdc, old_font);
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in draw_text:", e.what());
+    } catch (...) {
+        LOG_ERROR("Unknown exception in draw_text");
+    }
 }
 
 litehtml::pixel_t LitehtmlContainer::pt_to_px(float pt) const {
@@ -172,76 +217,72 @@ void LitehtmlContainer::draw_list_marker(litehtml::uint_ptr hdc, const litehtml:
         return;
     }
     
-    HBRUSH brush = CreateSolidBrush(web_color_to_colorref(marker.color));
-    HBRUSH old_brush = (HBRUSH)SelectObject(target_hdc, brush);
-    HPEN pen = CreatePen(PS_SOLID, 1, web_color_to_colorref(marker.color));
-    HPEN old_pen = (HPEN)SelectObject(target_hdc, pen);
-    
-    switch (marker.marker_type) {
-        case litehtml::list_style_type_circle:
-            Ellipse(target_hdc, 
-                   marker.pos.x, 
-                   marker.pos.y, 
-                   marker.pos.x + marker.pos.width, 
-                   marker.pos.y + marker.pos.height);
-            break;
-            
-        case litehtml::list_style_type_disc:
-            Ellipse(target_hdc, 
-                   marker.pos.x, 
-                   marker.pos.y, 
-                   marker.pos.x + marker.pos.width, 
-                   marker.pos.y + marker.pos.height);
-            break;
-            
-        case litehtml::list_style_type_square:
-            Rectangle(target_hdc, 
-                     marker.pos.x, 
-                     marker.pos.y, 
-                     marker.pos.x + marker.pos.width, 
-                     marker.pos.y + marker.pos.height);
-            break;
-            
-        default:
-            if (!marker.image.empty()) {
-                // Image marker - not implemented
-            } else if (marker.marker_type >= litehtml::list_style_type_decimal) {
-                SetBkMode(target_hdc, TRANSPARENT);
-                SetTextColor(target_hdc, web_color_to_colorref(marker.color));
+    try {
+        HBRUSH brush = CreateSolidBrush(web_color_to_colorref(marker.color));
+        HBRUSH old_brush = (HBRUSH)SelectObject(target_hdc, brush);
+        HPEN pen = CreatePen(PS_SOLID, 1, web_color_to_colorref(marker.color));
+        HPEN old_pen = (HPEN)SelectObject(target_hdc, pen);
+        
+        switch (marker.marker_type) {
+            case litehtml::list_style_type_circle:
+            case litehtml::list_style_type_disc:
+                Ellipse(target_hdc, 
+                       marker.pos.x, 
+                       marker.pos.y, 
+                       marker.pos.x + marker.pos.width, 
+                       marker.pos.y + marker.pos.height);
+                break;
                 
-                litehtml::string text = marker.image;
-                std::wstring wtext = utf8_to_wstring(text.c_str());
+            case litehtml::list_style_type_square:
+                Rectangle(target_hdc, 
+                         marker.pos.x, 
+                         marker.pos.y, 
+                         marker.pos.x + marker.pos.width, 
+                         marker.pos.y + marker.pos.height);
+                break;
                 
-                if (marker.font != 0) {
-                    auto it = fonts_.find(marker.font);
-                    if (it != fonts_.end()) {
-                        HFONT old_font = (HFONT)SelectObject(target_hdc, it->second.hfont);
-                        TextOutW(target_hdc, marker.pos.x, marker.pos.y, wtext.c_str(), (int)wtext.length());
-                        SelectObject(target_hdc, old_font);
+            default:
+                if (marker.marker_type >= litehtml::list_style_type_decimal) {
+                    SetBkMode(target_hdc, TRANSPARENT);
+                    SetTextColor(target_hdc, web_color_to_colorref(marker.color));
+                    
+                    litehtml::string text = marker.image;
+                    std::wstring wtext = utf8_to_wstring(text.c_str());
+                    
+                    if (marker.font != 0) {
+                        auto it = fonts_.find(marker.font);
+                        if (it != fonts_.end()) {
+                            HFONT old_font = (HFONT)SelectObject(target_hdc, it->second.hfont);
+                            TextOutW(target_hdc, marker.pos.x, marker.pos.y, wtext.c_str(), (int)wtext.length());
+                            SelectObject(target_hdc, old_font);
+                        }
                     }
                 }
-            }
-            break;
+                break;
+        }
+        
+        SelectObject(target_hdc, old_pen);
+        SelectObject(target_hdc, old_brush);
+        DeleteObject(pen);
+        DeleteObject(brush);
+        
+    } catch (...) {
+        LOG_ERROR("Exception in draw_list_marker");
     }
-    
-    SelectObject(target_hdc, old_pen);
-    SelectObject(target_hdc, old_brush);
-    DeleteObject(pen);
-    DeleteObject(brush);
 }
 
 void LitehtmlContainer::load_image(const char* src,
                                    const char* baseurl,
                                    bool redraw_on_ready) {
-    // Images are already loaded by epub parser into image_cache_
 }
 
 void LitehtmlContainer::get_image_size(const char* src,
                                       const char* baseurl,
                                       litehtml::size& sz) {
-    if (!image_cache_) {
-        sz.width = 0;
-        sz.height = 0;
+    sz.width = 0;
+    sz.height = 0;
+    
+    if (!src || !image_cache_) {
         return;
     }
     
@@ -249,9 +290,6 @@ void LitehtmlContainer::get_image_size(const char* src,
     if (img) {
         sz.width = img->width;
         sz.height = img->height;
-    } else {
-        sz.width = 0;
-        sz.height = 0;
     }
 }
 
@@ -259,7 +297,7 @@ void LitehtmlContainer::draw_image(litehtml::uint_ptr hdc,
                                   const litehtml::background_layer& layer,
                                   const std::string& url,
                                   const std::string& base_url) {
-    if (!image_cache_) {
+    if (!image_cache_ || url.empty()) {
         return;
     }
     
@@ -269,59 +307,73 @@ void LitehtmlContainer::draw_image(litehtml::uint_ptr hdc,
     }
     
     const epub::ImageData* img = image_cache_->getImage(url.c_str());
-    if (img) {
-        static bool gdiplus_initialized = false;
-        static ULONG_PTR gdiplusToken;
-        
-        if (!gdiplus_initialized) {
-            Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-            Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-            gdiplus_initialized = true;
-        }
-        
+    if (!img || img->pixels.empty()) {
+        return;
+    }
+    
+    try {
         Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(
             img->width,
             img->height,
             img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB
         );
         
-        if (bitmap) {
-            Gdiplus::BitmapData bitmapData;
-            Gdiplus::Rect bitmap_rect(0, 0, img->width, img->height);
+        if (!bitmap) {
+            LOG_ERROR("Failed to create GDI+ bitmap");
+            return;
+        }
+        
+        Gdiplus::BitmapData bitmapData;
+        Gdiplus::Rect bitmap_rect(0, 0, img->width, img->height);
+        
+        Gdiplus::Status status = bitmap->LockBits(
+            &bitmap_rect, 
+            Gdiplus::ImageLockModeWrite,
+            img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB,
+            &bitmapData
+        );
+        
+        if (status != Gdiplus::Ok) {
+            LOG_ERROR("Failed to lock bitmap bits");
+            delete bitmap;
+            return;
+        }
+        
+        for (int y = 0; y < img->height; y++) {
+            unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
+            const unsigned char* src = img->pixels.data() + y * img->width * img->channels;
             
-            bitmap->LockBits(&bitmap_rect, Gdiplus::ImageLockModeWrite,
-                            img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB,
-                            &bitmapData);
-            
-            for (int y = 0; y < img->height; y++) {
-                unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
-                const unsigned char* src = img->pixels.data() + y * img->width * img->channels;
-                
-                for (int x = 0; x < img->width; x++) {
-                    if (img->channels == 4) {
-                        dest[x * 4 + 0] = src[x * 4 + 2];
-                        dest[x * 4 + 1] = src[x * 4 + 1];
-                        dest[x * 4 + 2] = src[x * 4 + 0];
-                        dest[x * 4 + 3] = src[x * 4 + 3];
-                    } else {
-                        dest[x * 3 + 0] = src[x * 3 + 2];
-                        dest[x * 3 + 1] = src[x * 3 + 1];
-                        dest[x * 3 + 2] = src[x * 3 + 0];
-                    }
+            for (int x = 0; x < img->width; x++) {
+                if (img->channels == 4) {
+                    dest[x * 4 + 0] = src[x * 4 + 2];
+                    dest[x * 4 + 1] = src[x * 4 + 1];
+                    dest[x * 4 + 2] = src[x * 4 + 0];
+                    dest[x * 4 + 3] = src[x * 4 + 3];
+                } else if (img->channels == 3) {
+                    dest[x * 3 + 0] = src[x * 3 + 2];
+                    dest[x * 3 + 1] = src[x * 3 + 1];
+                    dest[x * 3 + 2] = src[x * 3 + 0];
                 }
             }
-            
-            bitmap->UnlockBits(&bitmapData);
-            
-            Gdiplus::Graphics graphics(target_hdc);
-            graphics.DrawImage(bitmap,
-                              layer.clip_box.x,
-                              layer.clip_box.y,
-                              layer.clip_box.width,
-                              layer.clip_box.height);
-            
-            delete bitmap;
         }
+        
+        bitmap->UnlockBits(&bitmapData);
+        
+        Gdiplus::Graphics graphics(target_hdc);
+        graphics.DrawImage(
+            bitmap,
+            layer.clip_box.x,
+            layer.clip_box.y,
+            layer.clip_box.width,
+            layer.clip_box.height
+        );
+        
+        delete bitmap;
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in draw_image:", e.what());
+    } catch (...) {
+        LOG_ERROR("Unknown exception in draw_image");
     }
 }
 
@@ -333,35 +385,39 @@ void LitehtmlContainer::draw_solid_fill(litehtml::uint_ptr hdc,
         return;
     }
     
-    RECT rect;
-    rect.left = layer.clip_box.x;
-    rect.top = layer.clip_box.y;
-    rect.right = layer.clip_box.x + layer.clip_box.width;
-    rect.bottom = layer.clip_box.y + layer.clip_box.height;
+    if (color.alpha == 0) {
+        return;
+    }
     
-    if (color.alpha != 0) {
+    try {
+        RECT rect;
+        rect.left = layer.clip_box.x;
+        rect.top = layer.clip_box.y;
+        rect.right = layer.clip_box.x + layer.clip_box.width;
+        rect.bottom = layer.clip_box.y + layer.clip_box.height;
+        
         HBRUSH brush = CreateSolidBrush(web_color_to_colorref(color));
         FillRect(target_hdc, &rect, brush);
         DeleteObject(brush);
+        
+    } catch (...) {
+        LOG_ERROR("Exception in draw_solid_fill");
     }
 }
 
 void LitehtmlContainer::draw_linear_gradient(litehtml::uint_ptr hdc,
                                             const litehtml::background_layer& layer,
                                             const litehtml::background_layer::linear_gradient& gradient) {
-    // Gradients not implemented
 }
 
 void LitehtmlContainer::draw_radial_gradient(litehtml::uint_ptr hdc,
                                             const litehtml::background_layer& layer,
                                             const litehtml::background_layer::radial_gradient& gradient) {
-    // Gradients not implemented
 }
 
 void LitehtmlContainer::draw_conic_gradient(litehtml::uint_ptr hdc,
                                            const litehtml::background_layer& layer,
                                            const litehtml::background_layer::conic_gradient& gradient) {
-    // Gradients not implemented
 }
 
 void LitehtmlContainer::draw_borders(litehtml::uint_ptr hdc,
@@ -373,96 +429,101 @@ void LitehtmlContainer::draw_borders(litehtml::uint_ptr hdc,
         return;
     }
     
-    auto draw_border = [&](int x1, int y1, int x2, int y2, const litehtml::border& border) {
-        if (border.width <= 0 || border.color.alpha == 0) {
-            return;
-        }
+    try {
+        auto draw_border = [&](int x1, int y1, int x2, int y2, const litehtml::border& border) {
+            if (border.width <= 0 || border.color.alpha == 0) {
+                return;
+            }
+            
+            HPEN pen = CreatePen(PS_SOLID, border.width, web_color_to_colorref(border.color));
+            HPEN old_pen = (HPEN)SelectObject(target_hdc, pen);
+            
+            MoveToEx(target_hdc, x1, y1, NULL);
+            LineTo(target_hdc, x2, y2);
+            
+            SelectObject(target_hdc, old_pen);
+            DeleteObject(pen);
+        };
         
-        HPEN pen = CreatePen(PS_SOLID, border.width, web_color_to_colorref(border.color));
-        HPEN old_pen = (HPEN)SelectObject(target_hdc, pen);
+        draw_border(draw_pos.left(), draw_pos.top(),
+                   draw_pos.right(), draw_pos.top(),
+                   borders.top);
         
-        MoveToEx(target_hdc, x1, y1, NULL);
-        LineTo(target_hdc, x2, y2);
+        draw_border(draw_pos.right(), draw_pos.top(),
+                   draw_pos.right(), draw_pos.bottom(),
+                   borders.right);
         
-        SelectObject(target_hdc, old_pen);
-        DeleteObject(pen);
-    };
-    
-    draw_border(draw_pos.left(), draw_pos.top(),
-               draw_pos.right(), draw_pos.top(),
-               borders.top);
-    
-    draw_border(draw_pos.right(), draw_pos.top(),
-               draw_pos.right(), draw_pos.bottom(),
-               borders.right);
-    
-    draw_border(draw_pos.right(), draw_pos.bottom(),
-               draw_pos.left(), draw_pos.bottom(),
-               borders.bottom);
-    
-    draw_border(draw_pos.left(), draw_pos.bottom(),
-               draw_pos.left(), draw_pos.top(),
-               borders.left);
+        draw_border(draw_pos.right(), draw_pos.bottom(),
+                   draw_pos.left(), draw_pos.bottom(),
+                   borders.bottom);
+        
+        draw_border(draw_pos.left(), draw_pos.bottom(),
+                   draw_pos.left(), draw_pos.top(),
+                   borders.left);
+                   
+    } catch (...) {
+        LOG_ERROR("Exception in draw_borders");
+    }
 }
 
 void LitehtmlContainer::set_caption(const char* caption) {
-    // Not used in our implementation
 }
 
 void LitehtmlContainer::set_base_url(const char* base_url) {
-    // Base URL is handled by epub parser
 }
 
 void LitehtmlContainer::link(const std::shared_ptr<litehtml::document>& doc,
                              const litehtml::element::ptr& el) {
-    // CSS linking - not used
 }
 
 void LitehtmlContainer::on_anchor_click(const char* url,
                                        const litehtml::element::ptr& el) {
-    // Link clicks - not implemented yet
 }
 
 void LitehtmlContainer::on_mouse_event(const litehtml::element::ptr& el,
                                       litehtml::mouse_event event) {
-    // Mouse events - not implemented
 }
 
 void LitehtmlContainer::set_cursor(const char* cursor) {
-    // Cursor changes - not implemented
 }
 
 void LitehtmlContainer::transform_text(litehtml::string& text, litehtml::text_transform tt) {
-    if (text.empty()) return;
-    
-    std::wstring wtext = utf8_to_wstring(text.c_str());
-    
-    switch (tt) {
-        case litehtml::text_transform_capitalize:
-            if (!wtext.empty()) {
-                wtext[0] = towupper(wtext[0]);
-            }
-            break;
-            
-        case litehtml::text_transform_uppercase:
-            std::transform(wtext.begin(), wtext.end(), wtext.begin(), towupper);
-            break;
-            
-        case litehtml::text_transform_lowercase:
-            std::transform(wtext.begin(), wtext.end(), wtext.begin(), towlower);
-            break;
-            
-        default:
-            break;
+    if (text.empty()) {
+        return;
     }
     
-    text = wstring_to_utf8(wtext);
+    try {
+        std::wstring wtext = utf8_to_wstring(text.c_str());
+        
+        switch (tt) {
+            case litehtml::text_transform_capitalize:
+                if (!wtext.empty()) {
+                    wtext[0] = towupper(wtext[0]);
+                }
+                break;
+                
+            case litehtml::text_transform_uppercase:
+                std::transform(wtext.begin(), wtext.end(), wtext.begin(), towupper);
+                break;
+                
+            case litehtml::text_transform_lowercase:
+                std::transform(wtext.begin(), wtext.end(), wtext.begin(), towlower);
+                break;
+                
+            default:
+                break;
+        }
+        
+        text = wstring_to_utf8(wtext);
+        
+    } catch (...) {
+        LOG_ERROR("Exception in transform_text");
+    }
 }
 
 void LitehtmlContainer::import_css(litehtml::string& text,
                                    const litehtml::string& url,
                                    litehtml::string& baseurl) {
-    // CSS imports - not used
 }
 
 void LitehtmlContainer::set_clip(const litehtml::position& pos,
@@ -471,15 +532,25 @@ void LitehtmlContainer::set_clip(const litehtml::position& pos,
         return;
     }
     
-    HRGN region = CreateRectRgn(pos.x, pos.y, pos.x + pos.width, pos.y + pos.height);
-    
-    if (clip_regions_.empty()) {
-        SelectClipRgn(hdc_, region);
-    } else {
-        ExtSelectClipRgn(hdc_, region, RGN_AND);
+    try {
+        HRGN region = CreateRectRgn(pos.x, pos.y, pos.x + pos.width, pos.y + pos.height);
+        
+        if (!region) {
+            LOG_ERROR("Failed to create clip region");
+            return;
+        }
+        
+        if (clip_regions_.empty()) {
+            SelectClipRgn(hdc_, region);
+        } else {
+            ExtSelectClipRgn(hdc_, region, RGN_AND);
+        }
+        
+        clip_regions_.push_back(region);
+        
+    } catch (...) {
+        LOG_ERROR("Exception in set_clip");
     }
-    
-    clip_regions_.push_back(region);
 }
 
 void LitehtmlContainer::del_clip() {
@@ -487,14 +558,19 @@ void LitehtmlContainer::del_clip() {
         return;
     }
     
-    HRGN region = clip_regions_.back();
-    DeleteObject(region);
-    clip_regions_.pop_back();
-    
-    if (clip_regions_.empty()) {
-        SelectClipRgn(hdc_, NULL);
-    } else {
-        SelectClipRgn(hdc_, clip_regions_.back());
+    try {
+        HRGN region = clip_regions_.back();
+        DeleteObject(region);
+        clip_regions_.pop_back();
+        
+        if (clip_regions_.empty()) {
+            SelectClipRgn(hdc_, NULL);
+        } else {
+            SelectClipRgn(hdc_, clip_regions_.back());
+        }
+        
+    } catch (...) {
+        LOG_ERROR("Exception in del_clip");
     }
 }
 
@@ -533,25 +609,43 @@ litehtml::string LitehtmlContainer::resolve_color(const litehtml::string& color)
 }
 
 std::wstring LitehtmlContainer::utf8_to_wstring(const std::string& str) {
-    if (str.empty()) return std::wstring();
+    if (str.empty()) {
+        return std::wstring();
+    }
     
-    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    if (size <= 0) return std::wstring();
-    
-    std::wstring result(size - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], size);
-    return result;
+    try {
+        int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+        if (size <= 0) {
+            return std::wstring();
+        }
+        
+        std::wstring result(size - 1, 0);
+        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], size);
+        return result;
+        
+    } catch (...) {
+        return std::wstring();
+    }
 }
 
 std::string LitehtmlContainer::wstring_to_utf8(const std::wstring& wstr) {
-    if (wstr.empty()) return std::string();
+    if (wstr.empty()) {
+        return std::string();
+    }
     
-    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (size <= 0) return std::string();
-    
-    std::string result(size - 1, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], size, nullptr, nullptr);
-    return result;
+    try {
+        int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (size <= 0) {
+            return std::string();
+        }
+        
+        std::string result(size - 1, 0);
+        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], size, nullptr, nullptr);
+        return result;
+        
+    } catch (...) {
+        return std::string();
+    }
 }
 
 COLORREF LitehtmlContainer::web_color_to_colorref(litehtml::web_color color) {

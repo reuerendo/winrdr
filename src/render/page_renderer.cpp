@@ -1,5 +1,11 @@
 #include "page_renderer.h"
 #include "../utils/logger.h"
+#include <gdiplus.h>
+
+namespace {
+    bool g_gdiplus_initialized = false;
+    ULONG_PTR g_gdiplusToken = 0;
+}
 
 PageRenderer::PageRenderer()
     : container_(nullptr)
@@ -10,6 +16,17 @@ PageRenderer::PageRenderer()
     , margin_(40)
     , total_height_(0)
 {
+    if (!g_gdiplus_initialized) {
+        Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+        Gdiplus::Status status = Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
+        if (status == Gdiplus::Ok) {
+            g_gdiplus_initialized = true;
+            LOG_INFO("GDI+ initialized successfully");
+        } else {
+            LOG_ERROR("Failed to initialize GDI+, status:", status);
+        }
+    }
+    
     master_css_ = R"(
         body {
             font-family: Arial, sans-serif;
@@ -108,53 +125,100 @@ PageRenderer::PageRenderer()
 }
 
 PageRenderer::~PageRenderer() {
+    document_.reset();
+    
+    if (container_) {
+        delete container_;
+        container_ = nullptr;
+    }
 }
 
 void PageRenderer::setContent(const std::string& html, const std::string& css) {
     LOG_DEBUG("Setting content, HTML length:", html.length(), "CSS length:", css.length());
     
-    document_.reset();
-    pages_.clear();
-    current_page_ = 0;
-    total_height_ = 0;
-    
-    if (html.empty()) {
-        LOG_WARNING("Empty HTML content");
-        return;
+    try {
+        document_.reset();
+        pages_.clear();
+        current_page_ = 0;
+        total_height_ = 0;
+        
+        if (html.empty()) {
+            LOG_WARNING("Empty HTML content");
+            return;
+        }
+        
+        HDC screen_hdc = GetDC(NULL);
+        if (!screen_hdc) {
+            LOG_ERROR("Failed to get screen DC");
+            return;
+        }
+        
+        HDC memory_hdc = CreateCompatibleDC(screen_hdc);
+        if (!memory_hdc) {
+            LOG_ERROR("Failed to create compatible DC");
+            ReleaseDC(NULL, screen_hdc);
+            return;
+        }
+        
+        if (!container_) {
+            container_ = new LitehtmlContainer(memory_hdc, image_cache_);
+            LOG_DEBUG("Created new LitehtmlContainer");
+        } else {
+            container_->setHDC(memory_hdc);
+            LOG_DEBUG("Reused existing LitehtmlContainer");
+        }
+        
+        int content_width = viewport_width_ - 2 * margin_;
+        int content_height = viewport_height_ - 2 * margin_;
+        
+        if (content_width <= 0 || content_height <= 0) {
+            LOG_ERROR("Invalid content dimensions:", content_width, "x", content_height);
+            DeleteDC(memory_hdc);
+            ReleaseDC(NULL, screen_hdc);
+            return;
+        }
+        
+        container_->setViewportSize(content_width, content_height);
+        
+        std::string combined_css = master_css_;
+        if (!css.empty()) {
+            combined_css += "\n" + css;
+        }
+        
+        LOG_DEBUG("Creating litehtml document...");
+        
+        document_ = litehtml::document::createFromString(
+            html.c_str(), 
+            container_, 
+            combined_css.c_str()
+        );
+        
+        DeleteDC(memory_hdc);
+        ReleaseDC(NULL, screen_hdc);
+        
+        if (!document_) {
+            LOG_ERROR("Failed to create litehtml document");
+            return;
+        }
+        
+        LOG_INFO("Document created successfully");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in setContent:", e.what());
+        document_.reset();
+    } catch (...) {
+        LOG_ERROR("Unknown exception in setContent");
+        document_.reset();
     }
-    
-    HDC hdc = GetDC(NULL);
-    
-    if (!container_) {
-        container_ = new LitehtmlContainer(hdc, image_cache_);
-    } else {
-        container_->setHDC(hdc);
-    }
-    
-    container_->setViewportSize(viewport_width_ - 2 * margin_, viewport_height_ - 2 * margin_);
-    
-    std::string combined_css = master_css_;
-    if (!css.empty()) {
-        combined_css += "\n" + css;
-    }
-    
-    document_ = litehtml::document::createFromString(html.c_str(), container_, combined_css, "");
-    
-    ReleaseDC(NULL, hdc);
-    
-    if (!document_) {
-        LOG_ERROR("Failed to create litehtml document");
-        return;
-    }
-    
-    LOG_INFO("Document created successfully");
 }
 
 void PageRenderer::setImageCache(epub::ImageCache* cache) {
     image_cache_ = cache;
+    
     if (container_) {
         delete container_;
         container_ = nullptr;
+        LOG_DEBUG("Container deleted, will be recreated on next setContent");
     }
 }
 
@@ -167,7 +231,12 @@ void PageRenderer::setViewport(int width, int height, int margin) {
     current_page_ = 0;
     
     if (container_) {
-        container_->setViewportSize(width - 2 * margin, height - 2 * margin);
+        int content_width = width - 2 * margin;
+        int content_height = height - 2 * margin;
+        
+        if (content_width > 0 && content_height > 0) {
+            container_->setViewportSize(content_width, content_height);
+        }
     }
     
     LOG_DEBUG("Viewport set:", width, "x", height, "margin:", margin);
@@ -179,42 +248,67 @@ void PageRenderer::calculatePages(HDC hdc) {
         return;
     }
     
-    pages_.clear();
-    
-    int content_width = viewport_width_ - 2 * margin_;
-    int content_height = viewport_height_ - 2 * margin_;
-    
-    if (container_) {
-        container_->setHDC(hdc);
+    try {
+        pages_.clear();
+        
+        int content_width = viewport_width_ - 2 * margin_;
+        int content_height = viewport_height_ - 2 * margin_;
+        
+        if (content_width <= 0 || content_height <= 0) {
+            LOG_ERROR("Invalid content dimensions for page calculation");
+            return;
+        }
+        
+        if (container_) {
+            container_->setHDC(hdc);
+        }
+        
+        LOG_DEBUG("Rendering document with width:", content_width);
+        
+        document_->render(content_width);
+        
+        total_height_ = document_->height();
+        
+        LOG_DEBUG("Document rendered, total height:", total_height_);
+        
+        if (total_height_ <= 0) {
+            LOG_WARNING("Document height is zero or negative, using default page");
+            PageInfo page;
+            page.scroll_offset = 0;
+            pages_.push_back(page);
+            return;
+        }
+        
+        int num_pages = (total_height_ + content_height - 1) / content_height;
+        
+        if (num_pages <= 0) {
+            num_pages = 1;
+        }
+        
+        for (int i = 0; i < num_pages; i++) {
+            PageInfo page;
+            page.scroll_offset = i * content_height;
+            pages_.push_back(page);
+        }
+        
+        LOG_INFO("Pages calculated:", pages_.size());
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in calculatePages:", e.what());
+        pages_.clear();
+    } catch (...) {
+        LOG_ERROR("Unknown exception in calculatePages");
+        pages_.clear();
     }
-    
-    document_->render(content_width);
-    
-    total_height_ = document_->height();
-    
-    LOG_DEBUG("Document rendered, total height:", total_height_);
-    
-    if (total_height_ == 0) {
-        LOG_WARNING("Document height is zero");
-        return;
-    }
-    
-    int num_pages = (total_height_ + content_height - 1) / content_height;
-    
-    for (int i = 0; i < num_pages; i++) {
-        PageInfo page;
-        page.scroll_offset = i * content_height;
-        pages_.push_back(page);
-    }
-    
-    LOG_INFO("Pages calculated:", pages_.size());
 }
 
 bool PageRenderer::nextPage() {
     if (pages_.empty()) {
         HDC hdc = GetDC(NULL);
-        calculatePages(hdc);
-        ReleaseDC(NULL, hdc);
+        if (hdc) {
+            calculatePages(hdc);
+            ReleaseDC(NULL, hdc);
+        }
     }
     
     if (current_page_ + 1 < pages_.size()) {
@@ -237,8 +331,10 @@ bool PageRenderer::prevPage() {
 void PageRenderer::goToPage(size_t page) {
     if (pages_.empty()) {
         HDC hdc = GetDC(NULL);
-        calculatePages(hdc);
-        ReleaseDC(NULL, hdc);
+        if (hdc) {
+            calculatePages(hdc);
+            ReleaseDC(NULL, hdc);
+        }
     }
     
     if (page < pages_.size()) {
@@ -253,38 +349,65 @@ void PageRenderer::render(HDC hdc) {
         return;
     }
     
-    if (pages_.empty()) {
-        calculatePages(hdc);
-    }
-    
-    if (pages_.empty() || current_page_ >= pages_.size()) {
-        LOG_WARNING("Nothing to render");
+    if (!hdc) {
+        LOG_ERROR("Invalid HDC for rendering");
         return;
     }
     
-    if (container_) {
-        container_->setHDC(hdc);
+    try {
+        if (pages_.empty()) {
+            calculatePages(hdc);
+        }
+        
+        if (pages_.empty() || current_page_ >= pages_.size()) {
+            LOG_WARNING("Nothing to render, pages:", pages_.size(), "current:", current_page_);
+            return;
+        }
+        
+        if (container_) {
+            container_->setHDC(hdc);
+        }
+        
+        const PageInfo& page = pages_[current_page_];
+        
+        RECT clip_rect;
+        clip_rect.left = margin_;
+        clip_rect.top = margin_;
+        clip_rect.right = viewport_width_ - margin_;
+        clip_rect.bottom = viewport_height_ - margin_;
+        
+        HRGN clip_region = CreateRectRgn(clip_rect.left, clip_rect.top, clip_rect.right, clip_rect.bottom);
+        if (!clip_region) {
+            LOG_ERROR("Failed to create clip region");
+            return;
+        }
+        
+        int result = SelectClipRgn(hdc, clip_region);
+        if (result == ERROR) {
+            LOG_ERROR("Failed to select clip region");
+            DeleteObject(clip_region);
+            return;
+        }
+        
+        litehtml::position clip_pos;
+        clip_pos.x = margin_;
+        clip_pos.y = margin_;
+        clip_pos.width = viewport_width_ - 2 * margin_;
+        clip_pos.height = viewport_height_ - 2 * margin_;
+        
+        document_->draw(
+            (litehtml::uint_ptr)hdc, 
+            margin_, 
+            margin_ - page.scroll_offset, 
+            &clip_pos
+        );
+        
+        SelectClipRgn(hdc, NULL);
+        DeleteObject(clip_region);
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in render:", e.what());
+    } catch (...) {
+        LOG_ERROR("Unknown exception in render");
     }
-    
-    const PageInfo& page = pages_[current_page_];
-    
-    RECT clip_rect;
-    clip_rect.left = margin_;
-    clip_rect.top = margin_;
-    clip_rect.right = viewport_width_ - margin_;
-    clip_rect.bottom = viewport_height_ - margin_;
-    
-    HRGN clip_region = CreateRectRgn(clip_rect.left, clip_rect.top, clip_rect.right, clip_rect.bottom);
-    SelectClipRgn(hdc, clip_region);
-    
-    litehtml::position clip_pos;
-    clip_pos.x = margin_;
-    clip_pos.y = margin_;
-    clip_pos.width = viewport_width_ - 2 * margin_;
-    clip_pos.height = viewport_height_ - 2 * margin_;
-    
-    document_->draw((litehtml::uint_ptr)hdc, margin_, margin_ - page.scroll_offset, &clip_pos);
-    
-    SelectClipRgn(hdc, NULL);
-    DeleteObject(clip_region);
 }
