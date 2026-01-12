@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(WIN32)
-    add_definitions(-DUNICODE -D_UNICODE)
+    add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX)
     add_compile_options(/utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
@@ -59,6 +59,7 @@ else()
     
     if(MSVC)
         target_compile_options(litehtml PRIVATE /W3)
+        target_compile_definitions(litehtml PRIVATE NOMINMAX)
     endif()
 endif()
 

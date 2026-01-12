@@ -35,35 +35,32 @@ LitehtmlContainer::~LitehtmlContainer() {
     clip_regions_.clear();
 }
 
-litehtml::uint_ptr LitehtmlContainer::create_font(const char* face_name,
-                                                   int size,
-                                                   int weight,
-                                                   litehtml::font_style italic,
-                                                   unsigned int decoration,
+litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_description& font_description,
+                                                   const litehtml::document* doc,
                                                    litehtml::font_metrics* fm) {
-    std::wstring font_face = utf8_to_wstring(face_name);
+    std::wstring font_face = utf8_to_wstring(font_description.face_name);
     
     if (font_face.empty()) {
         font_face = L"Arial";
     }
     
     int font_weight = FW_NORMAL;
-    if (weight >= 700) {
+    if (font_description.weight >= 700) {
         font_weight = FW_BOLD;
-    } else if (weight >= 600) {
+    } else if (font_description.weight >= 600) {
         font_weight = FW_SEMIBOLD;
-    } else if (weight >= 300) {
+    } else if (font_description.weight >= 300) {
         font_weight = FW_NORMAL;
     } else {
         font_weight = FW_LIGHT;
     }
     
-    BOOL is_italic = (italic == litehtml::fontStyleItalic) ? TRUE : FALSE;
-    BOOL is_underline = (decoration & litehtml::font_decoration_underline) ? TRUE : FALSE;
-    BOOL is_strikeout = (decoration & litehtml::font_decoration_linethrough) ? TRUE : FALSE;
+    BOOL is_italic = (font_description.style == litehtml::font_style_italic) ? TRUE : FALSE;
+    BOOL is_underline = (font_description.decoration & litehtml::font_decoration_underline) ? TRUE : FALSE;
+    BOOL is_strikeout = (font_description.decoration & litehtml::font_decoration_line_through) ? TRUE : FALSE;
     
     HFONT hfont = CreateFontW(
-        -MulDiv(size, DPI, 72),
+        -MulDiv((int)font_description.size, DPI, 72),
         0,
         0,
         0,
@@ -95,10 +92,10 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const char* face_name,
     
     FontInfo info;
     info.hfont = hfont;
-    info.size = size;
-    info.weight = weight;
-    info.italic = (italic == litehtml::fontStyleItalic);
-    info.decoration = decoration;
+    info.size = (int)font_description.size;
+    info.weight = font_description.weight;
+    info.italic = (font_description.style == litehtml::font_style_italic);
+    info.decoration = font_description.decoration;
     info.face_name = font_face;
     
     litehtml::uint_ptr font_id = next_font_id_++;
@@ -117,7 +114,7 @@ void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
     }
 }
 
-int LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
+litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
     auto it = fonts_.find(hFont);
     if (it == fonts_.end()) {
         return 0;
@@ -161,11 +158,11 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
     SelectObject(target_hdc, old_font);
 }
 
-int LitehtmlContainer::pt_to_px(int pt) const {
-    return MulDiv(pt, DPI, 72);
+litehtml::pixel_t LitehtmlContainer::pt_to_px(float pt) const {
+    return (litehtml::pixel_t)MulDiv((int)pt, DPI, 72);
 }
 
-int LitehtmlContainer::get_default_font_size() const {
+litehtml::pixel_t LitehtmlContainer::get_default_font_size() const {
     return DEFAULT_FONT_SIZE;
 }
 
@@ -259,78 +256,107 @@ void LitehtmlContainer::get_image_size(const char* src,
     }
 }
 
-void LitehtmlContainer::draw_background(litehtml::uint_ptr hdc, const litehtml::background_paint& bg) {
+void LitehtmlContainer::draw_image(litehtml::uint_ptr hdc,
+                                  const litehtml::background_layer& layer,
+                                  const std::string& url,
+                                  const std::string& base_url) {
+    if (!image_cache_) {
+        return;
+    }
+    
+    HDC target_hdc = hdc ? (HDC)hdc : hdc_;
+    
+    const epub::ImageData* img = image_cache_->getImage(url.c_str());
+    if (img) {
+        static bool gdiplus_initialized = false;
+        static ULONG_PTR gdiplusToken;
+        
+        if (!gdiplus_initialized) {
+            Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+            Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+            gdiplus_initialized = true;
+        }
+        
+        Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(
+            img->width,
+            img->height,
+            img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB
+        );
+        
+        if (bitmap) {
+            Gdiplus::BitmapData bitmapData;
+            Gdiplus::Rect bitmap_rect(0, 0, img->width, img->height);
+            
+            bitmap->LockBits(&bitmap_rect, Gdiplus::ImageLockModeWrite,
+                            img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB,
+                            &bitmapData);
+            
+            for (int y = 0; y < img->height; y++) {
+                unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
+                const unsigned char* src = img->pixels.data() + y * img->width * img->channels;
+                
+                for (int x = 0; x < img->width; x++) {
+                    if (img->channels == 4) {
+                        dest[x * 4 + 0] = src[x * 4 + 2];
+                        dest[x * 4 + 1] = src[x * 4 + 1];
+                        dest[x * 4 + 2] = src[x * 4 + 0];
+                        dest[x * 4 + 3] = src[x * 4 + 3];
+                    } else {
+                        dest[x * 3 + 0] = src[x * 3 + 2];
+                        dest[x * 3 + 1] = src[x * 3 + 1];
+                        dest[x * 3 + 2] = src[x * 3 + 0];
+                    }
+                }
+            }
+            
+            bitmap->UnlockBits(&bitmapData);
+            
+            Gdiplus::Graphics graphics(target_hdc);
+            graphics.DrawImage(bitmap,
+                              layer.clip_box.x,
+                              layer.clip_box.y,
+                              layer.clip_box.width,
+                              layer.clip_box.height);
+            
+            delete bitmap;
+        }
+    }
+}
+
+void LitehtmlContainer::draw_solid_fill(litehtml::uint_ptr hdc,
+                                       const litehtml::background_layer& layer,
+                                       const litehtml::web_color& color) {
     HDC target_hdc = hdc ? (HDC)hdc : hdc_;
     
     RECT rect;
-    rect.left = bg.border_box.x;
-    rect.top = bg.border_box.y;
-    rect.right = bg.border_box.x + bg.border_box.width;
-    rect.bottom = bg.border_box.y + bg.border_box.height;
+    rect.left = layer.clip_box.x;
+    rect.top = layer.clip_box.y;
+    rect.right = layer.clip_box.x + layer.clip_box.width;
+    rect.bottom = layer.clip_box.y + layer.clip_box.height;
     
-    if (bg.color.alpha != 0) {
-        HBRUSH brush = CreateSolidBrush(web_color_to_colorref(bg.color));
+    if (color.alpha != 0) {
+        HBRUSH brush = CreateSolidBrush(web_color_to_colorref(color));
         FillRect(target_hdc, &rect, brush);
         DeleteObject(brush);
     }
-    
-    if (!bg.image.empty() && image_cache_) {
-        const epub::ImageData* img = image_cache_->getImage(bg.image.c_str());
-        if (img) {
-            static bool gdiplus_initialized = false;
-            static ULONG_PTR gdiplusToken;
-            
-            if (!gdiplus_initialized) {
-                Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-                Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-                gdiplus_initialized = true;
-            }
-            
-            Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(
-                img->width,
-                img->height,
-                img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB
-            );
-            
-            if (bitmap) {
-                Gdiplus::BitmapData bitmapData;
-                Gdiplus::Rect bitmap_rect(0, 0, img->width, img->height);
-                
-                bitmap->LockBits(&bitmap_rect, Gdiplus::ImageLockModeWrite,
-                                img->channels == 4 ? PixelFormat32bppARGB : PixelFormat24bppRGB,
-                                &bitmapData);
-                
-                for (int y = 0; y < img->height; y++) {
-                    unsigned char* dest = (unsigned char*)bitmapData.Scan0 + y * bitmapData.Stride;
-                    const unsigned char* src = img->pixels.data() + y * img->width * img->channels;
-                    
-                    for (int x = 0; x < img->width; x++) {
-                        if (img->channels == 4) {
-                            dest[x * 4 + 0] = src[x * 4 + 2];
-                            dest[x * 4 + 1] = src[x * 4 + 1];
-                            dest[x * 4 + 2] = src[x * 4 + 0];
-                            dest[x * 4 + 3] = src[x * 4 + 3];
-                        } else {
-                            dest[x * 3 + 0] = src[x * 3 + 2];
-                            dest[x * 3 + 1] = src[x * 3 + 1];
-                            dest[x * 3 + 2] = src[x * 3 + 0];
-                        }
-                    }
-                }
-                
-                bitmap->UnlockBits(&bitmapData);
-                
-                Gdiplus::Graphics graphics(target_hdc);
-                graphics.DrawImage(bitmap,
-                                  bg.image_box.x,
-                                  bg.image_box.y,
-                                  bg.image_box.width,
-                                  bg.image_box.height);
-                
-                delete bitmap;
-            }
-        }
-    }
+}
+
+void LitehtmlContainer::draw_linear_gradient(litehtml::uint_ptr hdc,
+                                            const litehtml::background_layer& layer,
+                                            const litehtml::background_layer::linear_gradient& gradient) {
+    // Gradients not implemented
+}
+
+void LitehtmlContainer::draw_radial_gradient(litehtml::uint_ptr hdc,
+                                            const litehtml::background_layer& layer,
+                                            const litehtml::background_layer::radial_gradient& gradient) {
+    // Gradients not implemented
+}
+
+void LitehtmlContainer::draw_conic_gradient(litehtml::uint_ptr hdc,
+                                           const litehtml::background_layer& layer,
+                                           const litehtml::background_layer::conic_gradient& gradient) {
+    // Gradients not implemented
 }
 
 void LitehtmlContainer::draw_borders(litehtml::uint_ptr hdc,
@@ -387,6 +413,11 @@ void LitehtmlContainer::link(const std::shared_ptr<litehtml::document>& doc,
 void LitehtmlContainer::on_anchor_click(const char* url,
                                        const litehtml::element::ptr& el) {
     // Link clicks - not implemented yet
+}
+
+void LitehtmlContainer::on_mouse_event(const litehtml::element::ptr& el,
+                                      litehtml::mouse_event event) {
+    // Mouse events - not implemented
 }
 
 void LitehtmlContainer::set_cursor(const char* cursor) {
@@ -453,11 +484,11 @@ void LitehtmlContainer::del_clip() {
     }
 }
 
-void LitehtmlContainer::get_client_rect(litehtml::position& client) const {
-    client.x = 0;
-    client.y = 0;
-    client.width = viewport_width_;
-    client.height = viewport_height_;
+void LitehtmlContainer::get_viewport(litehtml::position& viewport) const {
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = viewport_width_;
+    viewport.height = viewport_height_;
 }
 
 std::shared_ptr<litehtml::element> LitehtmlContainer::create_element(const char* tag_name,
@@ -529,7 +560,7 @@ void LitehtmlContainer::apply_font_decoration(HDC hdc, const FontInfo& font, con
         DeleteObject(pen);
     }
     
-    if (font.decoration & litehtml::font_decoration_linethrough) {
+    if (font.decoration & litehtml::font_decoration_line_through) {
         HPEN pen = CreatePen(PS_SOLID, 1, GetTextColor(hdc));
         HPEN old_pen = (HPEN)SelectObject(hdc, pen);
         
