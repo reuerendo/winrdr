@@ -31,6 +31,7 @@ CSSProcessor::~CSSProcessor() {
 void CSSProcessor::clear() {
     rules_.clear();
     inline_styles_.clear();
+    loaded_stylesheets_.clear();
     debug_logger_.clear();
 }
 
@@ -87,29 +88,38 @@ bool CSSProcessor::loadDefaultStyles(const std::string& css_file_path) {
     }
     
     LOG_INFO("Loaded default CSS, length:", css_content.length());
-    return parseStylesheet(css_content);
+    return parseStylesheet(css_content, css_file_path);
 }
 
 void CSSProcessor::setDocument(lxb_html_document_t* document) {
     document_ = document;
 }
 
-bool CSSProcessor::parseStylesheet(const std::string& css) {
+bool CSSProcessor::parseStylesheet(const std::string& css, const std::string& source_path) {
     if (css.empty()) {
         return false;
     }
     
+    if (!source_path.empty()) {
+        if (loaded_stylesheets_.find(source_path) != loaded_stylesheets_.end()) {
+            LOG_DEBUG("Stylesheet already loaded, skipping:", source_path);
+            return true;
+        }
+        loaded_stylesheets_.insert(source_path);
+    }
+    
     LOG_DEBUG("Parsing CSS stylesheet, length:", css.length());
     
+    const size_t rules_before = rules_.size();
     parseSimpleCSS(css);
+    const size_t rules_added = rules_.size() - rules_before;
     
-    LOG_INFO("CSS rules loaded:", rules_.size());
+    LOG_INFO("CSS rules added:", rules_added, "Total:", rules_.size());
     return true;
 }
 
 void CSSProcessor::parseSimpleCSS(const std::string& css) {
     size_t pos = 0;
-    int rules_parsed = 0;
     
     while (pos < css.length()) {
         size_t brace_open = css.find('{', pos);
@@ -150,14 +160,11 @@ void CSSProcessor::parseSimpleCSS(const std::string& css) {
             
             if (!rule.properties.empty()) {
                 rules_.push_back(rule);
-                rules_parsed++;
             }
         }
         
         pos = brace_close + 1;
     }
-    
-    LOG_DEBUG("Parsed CSS rules:", rules_parsed);
 }
 
 CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {

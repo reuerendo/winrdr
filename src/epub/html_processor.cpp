@@ -32,8 +32,6 @@ FormattedContent HTMLProcessor::parse(const std::string& html, ZipHandler* zip,
     
     FormattedContent output;
     
-    css_processor_.clear();
-    
     lxb_html_document_t* document = lxb_html_document_create();
     if (!document) {
         LOG_ERROR("Failed to create HTML document");
@@ -89,7 +87,6 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             goto process_children;
         }
         
-        // Skip whitespace-only text nodes
         bool is_whitespace_only = true;
         for (char c : text) {
             if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
@@ -122,60 +119,13 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             elem.align = inherited_align;
             elem.list_level = list_level;
             
-            // Apply CSS from parent element only if parent is a block-level element
             lxb_dom_node_t* parent = lxb_dom_node_parent(node);
             if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
-                lxb_dom_element_t* parent_element = lxb_dom_interface_element(parent);
-                const lxb_char_t* parent_tag_name_raw = lxb_dom_element_qualified_name(parent_element, nullptr);
-                std::string parent_tag_name(reinterpret_cast<const char*>(parent_tag_name_raw));
-                
-                // Only apply box model from block-level elements
-                const bool is_parent_block = (parent_tag_name == "p" || parent_tag_name == "div" || 
-                                             parent_tag_name == "blockquote" || parent_tag_name == "li" ||
-                                             parent_tag_name == "h1" || parent_tag_name == "h2" || 
-                                             parent_tag_name == "h3" || parent_tag_name == "h4" || 
-                                             parent_tag_name == "h5" || parent_tag_name == "h6");
-                
-                if (is_parent_block) {
-                    CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
-                    elem.css_font_size = parent_css.font_size;
-                    elem.css_line_height = parent_css.line_height;
-                    elem.css_letter_spacing = parent_css.letter_spacing;
-                    elem.css_text_indent = parent_css.text_indent;
-                    elem.css_small_caps = parent_css.small_caps;
-                    
-                    // Check if this is the first text node in this block element
-                    bool is_first_in_block = true;
-                    if (!output.empty()) {
-                        // Look back to see if we've already added text from this block
-                        for (int i = static_cast<int>(output.size()) - 1; i >= 0; i--) {
-                            const TextElement& prev = output[i];
-                            // Stop at line break
-                            if (prev.type == ElementType::LineBreak) {
-                                break;
-                            }
-                            // If we find same block type and it has margins set, this is not the first
-                            if (prev.type == block_type && prev.type != ElementType::Text) {
-                                if (prev.css_margin_top != 0 || prev.css_padding_top != 0) {
-                                    is_first_in_block = false;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // Only apply margins/padding to first text element in block
-                    if (is_first_in_block) {
-                        elem.css_margin_top = parent_css.margin_top;
-                        elem.css_margin_bottom = parent_css.margin_bottom;
-                        elem.css_margin_left = parent_css.margin_left;
-                        elem.css_margin_right = parent_css.margin_right;
-                        elem.css_padding_top = parent_css.padding_top;
-                        elem.css_padding_bottom = parent_css.padding_bottom;
-                        elem.css_padding_left = parent_css.padding_left;
-                        elem.css_padding_right = parent_css.padding_right;
-                    }
-                }
+                CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
+                elem.css_font_size = parent_css.font_size;
+                elem.css_line_height = parent_css.line_height;
+                elem.css_letter_spacing = parent_css.letter_spacing;
+                elem.css_small_caps = parent_css.small_caps;
             }
             
             output.push_back(elem);
@@ -253,7 +203,7 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
                                       tag_name == "h1" || tag_name == "h2" || 
                                       tag_name == "h3" || tag_name == "h4" || 
                                       tag_name == "h5" || tag_name == "h6" ||
-                                      tag_name == "blockquote");
+                                      tag_name == "blockquote" || tag_name == "li");
         
         if (is_block_element) {
             new_align = css_text_align;
@@ -261,33 +211,44 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             new_align = css_text_align;
         }
         
+        bool should_add_block_spacing = false;
+        
         if (tag_name == "p") {
             new_block_type = ElementType::Paragraph;
+            should_add_block_spacing = true;
         } else if (tag_name == "h1") {
             new_block_type = ElementType::Heading1;
             new_style = new_style | TextStyle::Bold;
+            should_add_block_spacing = true;
         } else if (tag_name == "h2") {
             new_block_type = ElementType::Heading2;
             new_style = new_style | TextStyle::Bold;
+            should_add_block_spacing = true;
         } else if (tag_name == "h3") {
             new_block_type = ElementType::Heading3;
             new_style = new_style | TextStyle::Bold;
+            should_add_block_spacing = true;
         } else if (tag_name == "h4") {
             new_block_type = ElementType::Heading4;
             new_style = new_style | TextStyle::Bold;
+            should_add_block_spacing = true;
         } else if (tag_name == "h5") {
             new_block_type = ElementType::Heading5;
             new_style = new_style | TextStyle::Bold;
+            should_add_block_spacing = true;
         } else if (tag_name == "h6") {
             new_block_type = ElementType::Heading6;
             new_style = new_style | TextStyle::Bold;
+            should_add_block_spacing = true;
         } else if (tag_name == "blockquote") {
             new_block_type = ElementType::Quote;
+            should_add_block_spacing = true;
         } else if (tag_name == "pre" || tag_name == "code") {
             new_block_type = ElementType::CodeBlock;
             new_style = new_style | TextStyle::Monospace;
         } else if (tag_name == "li") {
             new_block_type = ElementType::ListItem;
+            should_add_block_spacing = true;
         } else if (tag_name == "ul" || tag_name == "ol") {
             new_list_level++;
         }
@@ -311,13 +272,39 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         } else if (tag_name == "a") {
             new_block_type = ElementType::Link;
             new_style = new_style | TextStyle::Underline;
-            std::string href = getAttributeValue(node, "href");
         }
+        
+        if (should_add_block_spacing && (css_style.margin_top > 0 || css_style.padding_top > 0)) {
+            TextElement spacing_elem;
+            spacing_elem.type = ElementType::Text;
+            spacing_elem.content = L"";
+            spacing_elem.style = TextStyle::Normal;
+            spacing_elem.align = new_align;
+            spacing_elem.css_margin_top = css_style.margin_top;
+            spacing_elem.css_padding_top = css_style.padding_top;
+            spacing_elem.css_margin_left = css_style.margin_left;
+            spacing_elem.css_padding_left = css_style.padding_left;
+            spacing_elem.css_text_indent = css_style.text_indent;
+            output.push_back(spacing_elem);
+        }
+        
+        size_t content_start = output.size();
         
         lxb_dom_node_t* child = lxb_dom_node_first_child(node);
         while (child) {
             processNode(child, output, new_style, new_align, new_block_type, new_list_level);
             child = lxb_dom_node_next(child);
+        }
+        
+        if (should_add_block_spacing && (css_style.margin_bottom > 0 || css_style.padding_bottom > 0)) {
+            TextElement spacing_elem;
+            spacing_elem.type = ElementType::Text;
+            spacing_elem.content = L"";
+            spacing_elem.style = TextStyle::Normal;
+            spacing_elem.align = new_align;
+            spacing_elem.css_margin_bottom = css_style.margin_bottom;
+            spacing_elem.css_padding_bottom = css_style.padding_bottom;
+            output.push_back(spacing_elem);
         }
         
         if (tag_name == "p" || tag_name == "div" || tag_name == "blockquote" ||
@@ -428,7 +415,7 @@ void HTMLProcessor::extractStylesheets(lxb_html_document_t* document, ZipHandler
                 std::string css_text = getNodeText(lxb_dom_interface_node(element));
                 if (!css_text.empty()) {
                     LOG_DEBUG("Parsing inline stylesheet, length:", css_text.length());
-                    css_processor_.parseStylesheet(css_text);
+                    css_processor_.parseStylesheet(css_text, "inline_style_" + std::to_string(i));
                 }
             }
         }
@@ -477,11 +464,12 @@ void HTMLProcessor::extractStylesheets(lxb_html_document_t* document, ZipHandler
                     }
                     LOG_DEBUG("Trying fallback path:", fallback_path);
                     css_content = zip->extractTextFile(fallback_path);
+                    css_path = fallback_path;
                 }
                 
                 if (!css_content.empty()) {
                     LOG_DEBUG("Parsing external stylesheet, length:", css_content.length());
-                    css_processor_.parseStylesheet(css_content);
+                    css_processor_.parseStylesheet(css_content, css_path);
                 } else {
                     LOG_WARNING("Failed to load external stylesheet:", css_path);
                 }

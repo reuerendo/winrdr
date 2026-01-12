@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 typedef struct lxb_selectors lxb_selectors_t;
 typedef struct lxb_dom_node lxb_dom_node_t;
@@ -26,7 +27,7 @@ public:
     void clear();
     
     bool loadDefaultStyles(const std::string& css_file_path);
-    bool parseStylesheet(const std::string& css);
+    bool parseStylesheet(const std::string& css, const std::string& source_path = "");
     void setDocument(lxb_html_document_t* document);
     
     void addInlineStyle(lxb_dom_element_t* element, const std::string& style_text);
@@ -59,6 +60,7 @@ private:
     
     std::vector<RuleData> rules_;
     std::unordered_map<lxb_dom_element_t*, std::unordered_map<std::string, PropertyValue>> inline_styles_;
+    std::unordered_set<std::string> loaded_stylesheets_;
     
     CSSSelectorMatcher selector_matcher_;
     CSSPropertyApplier property_applier_;
