@@ -1,6 +1,5 @@
 #pragma once
 
-#define NOMINMAX
 #include <windows.h>
 #include <litehtml.h>
 #include <string>
@@ -27,7 +26,7 @@ public:
     
     virtual void delete_font(litehtml::uint_ptr hFont) override;
     
-    virtual int text_width(const char* text, litehtml::uint_ptr hFont) override;
+    virtual litehtml::pixel_t text_width(const char* text, litehtml::uint_ptr hFont) override;
     
     virtual void draw_text(litehtml::uint_ptr hdc, 
                           const char* text, 
@@ -35,9 +34,9 @@ public:
                           litehtml::web_color color, 
                           const litehtml::position& pos) override;
     
-    virtual int pt_to_px(int pt) const override;
+    virtual litehtml::pixel_t pt_to_px(float pt) const override;
     
-    virtual int get_default_font_size() const override;
+    virtual litehtml::pixel_t get_default_font_size() const override;
     
     virtual const char* get_default_font_name() const override;
     
@@ -118,7 +117,6 @@ public:
 private:
     struct FontInfo {
         HFONT hfont;
-        litehtml::font_description description;
     };
     
     HDC hdc_;
@@ -134,5 +132,4 @@ private:
     std::wstring utf8_to_wstring(const std::string& str);
     std::string wstring_to_utf8(const std::wstring& wstr);
     COLORREF web_color_to_colorref(litehtml::web_color color);
-    void apply_text_decoration(HDC hdc, const litehtml::font_description& desc, const litehtml::position& pos, const std::wstring& text);
 };

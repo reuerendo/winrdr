@@ -56,8 +56,8 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
     }
     
     BOOL is_italic = (font_description.style == litehtml::font_style_italic) ? TRUE : FALSE;
-    BOOL is_underline = (font_description.decoration == litehtml::text_decoration_underline) ? TRUE : FALSE;
-    BOOL is_strikeout = (font_description.decoration == litehtml::text_decoration_line_through) ? TRUE : FALSE;
+    BOOL is_underline = FALSE;
+    BOOL is_strikeout = FALSE;
     
     HFONT hfont = CreateFontW(
         -MulDiv((int)font_description.size, DPI, 72),
@@ -92,7 +92,6 @@ litehtml::uint_ptr LitehtmlContainer::create_font(const litehtml::font_descripti
     
     FontInfo info;
     info.hfont = hfont;
-    info.description = font_description;
     
     litehtml::uint_ptr font_id = next_font_id_++;
     fonts_[font_id] = info;
@@ -110,7 +109,7 @@ void LitehtmlContainer::delete_font(litehtml::uint_ptr hFont) {
     }
 }
 
-int LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
+litehtml::pixel_t LitehtmlContainer::text_width(const char* text, litehtml::uint_ptr hFont) {
     auto it = fonts_.find(hFont);
     if (it == fonts_.end() || !hdc_) {
         return 0;
@@ -152,16 +151,14 @@ void LitehtmlContainer::draw_text(litehtml::uint_ptr hdc,
     
     TextOutW(target_hdc, pos.x, pos.y, wtext.c_str(), (int)wtext.length());
     
-    apply_text_decoration(target_hdc, it->second.description, pos, wtext);
-    
     SelectObject(target_hdc, old_font);
 }
 
-int LitehtmlContainer::pt_to_px(int pt) const {
-    return MulDiv(pt, DPI, 72);
+litehtml::pixel_t LitehtmlContainer::pt_to_px(float pt) const {
+    return (litehtml::pixel_t)MulDiv((int)pt, DPI, 72);
 }
 
-int LitehtmlContainer::get_default_font_size() const {
+litehtml::pixel_t LitehtmlContainer::get_default_font_size() const {
     return DEFAULT_FONT_SIZE;
 }
 
@@ -559,47 +556,4 @@ std::string LitehtmlContainer::wstring_to_utf8(const std::wstring& wstr) {
 
 COLORREF LitehtmlContainer::web_color_to_colorref(litehtml::web_color color) {
     return RGB(color.red, color.green, color.blue);
-}
-
-void LitehtmlContainer::apply_text_decoration(HDC hdc, const litehtml::font_description& desc, const litehtml::position& pos, const std::wstring& text) {
-    SIZE sz;
-    GetTextExtentPoint32W(hdc, text.c_str(), (int)text.length(), &sz);
-    
-    COLORREF text_color = GetTextColor(hdc);
-    
-    if (desc.decoration == litehtml::text_decoration_underline) {
-        HPEN pen = CreatePen(PS_SOLID, 1, text_color);
-        HPEN old_pen = (HPEN)SelectObject(hdc, pen);
-        
-        int underline_y = pos.y + sz.cy - 2;
-        MoveToEx(hdc, pos.x, underline_y, NULL);
-        LineTo(hdc, pos.x + sz.cx, underline_y);
-        
-        SelectObject(hdc, old_pen);
-        DeleteObject(pen);
-    }
-    
-    if (desc.decoration == litehtml::text_decoration_line_through) {
-        HPEN pen = CreatePen(PS_SOLID, 1, text_color);
-        HPEN old_pen = (HPEN)SelectObject(hdc, pen);
-        
-        int strikethrough_y = pos.y + sz.cy / 2;
-        MoveToEx(hdc, pos.x, strikethrough_y, NULL);
-        LineTo(hdc, pos.x + sz.cx, strikethrough_y);
-        
-        SelectObject(hdc, old_pen);
-        DeleteObject(pen);
-    }
-    
-    if (desc.decoration == litehtml::text_decoration_overline) {
-        HPEN pen = CreatePen(PS_SOLID, 1, text_color);
-        HPEN old_pen = (HPEN)SelectObject(hdc, pen);
-        
-        int overline_y = pos.y + 2;
-        MoveToEx(hdc, pos.x, overline_y, NULL);
-        LineTo(hdc, pos.x + sz.cx, overline_y);
-        
-        SelectObject(hdc, old_pen);
-        DeleteObject(pen);
-    }
 }
