@@ -10,66 +10,33 @@ if(WIN32)
 endif()
 
 # Gumbo-parser
-set(GUMBO_SOURCES
-    libs/gumbo-parser/src/attribute.c
-    libs/gumbo-parser/src/char_ref.c
-    libs/gumbo-parser/src/error.c
-    libs/gumbo-parser/src/parser.c
-    libs/gumbo-parser/src/string_buffer.c
-    libs/gumbo-parser/src/string_piece.c
-    libs/gumbo-parser/src/tag.c
-    libs/gumbo-parser/src/tokenizer.c
-    libs/gumbo-parser/src/utf8.c
-    libs/gumbo-parser/src/util.c
-    libs/gumbo-parser/src/vector.c
-)
+file(GLOB GUMBO_SOURCES "libs/gumbo-parser/src/*.c")
+
+if(NOT GUMBO_SOURCES)
+    message(FATAL_ERROR "No gumbo-parser source files found in libs/gumbo-parser/src/")
+endif()
 
 add_library(gumbo STATIC ${GUMBO_SOURCES})
 target_include_directories(gumbo PUBLIC libs/gumbo-parser/src)
 
+if(MSVC)
+    target_compile_definitions(gumbo PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
 # Litehtml
-set(LITEHTML_SOURCES
-    libs/litehtml/src/background.cpp
-    libs/litehtml/src/box.cpp
-    libs/litehtml/src/context.cpp
-    libs/litehtml/src/css_length.cpp
-    libs/litehtml/src/css_selector.cpp
-    libs/litehtml/src/document.cpp
-    libs/litehtml/src/el_anchor.cpp
-    libs/litehtml/src/el_base.cpp
-    libs/litehtml/src/el_before_after.cpp
-    libs/litehtml/src/el_body.cpp
-    libs/litehtml/src/el_break.cpp
-    libs/litehtml/src/el_cdata.cpp
-    libs/litehtml/src/el_comment.cpp
-    libs/litehtml/src/el_div.cpp
-    libs/litehtml/src/el_font.cpp
-    libs/litehtml/src/el_image.cpp
-    libs/litehtml/src/el_link.cpp
-    libs/litehtml/src/el_para.cpp
-    libs/litehtml/src/el_script.cpp
-    libs/litehtml/src/el_space.cpp
-    libs/litehtml/src/el_style.cpp
-    libs/litehtml/src/el_table.cpp
-    libs/litehtml/src/el_td.cpp
-    libs/litehtml/src/el_text.cpp
-    libs/litehtml/src/el_title.cpp
-    libs/litehtml/src/el_tr.cpp
-    libs/litehtml/src/element.cpp
-    libs/litehtml/src/html.cpp
-    libs/litehtml/src/html_tag.cpp
-    libs/litehtml/src/iterators.cpp
-    libs/litehtml/src/media_query.cpp
-    libs/litehtml/src/style.cpp
-    libs/litehtml/src/stylesheet.cpp
-    libs/litehtml/src/table.cpp
-    libs/litehtml/src/utf8_strings.cpp
-    libs/litehtml/src/web_color.cpp
-)
+file(GLOB_RECURSE LITEHTML_SOURCES "libs/litehtml/src/*.cpp")
+
+if(NOT LITEHTML_SOURCES)
+    message(FATAL_ERROR "No litehtml source files found in libs/litehtml/src/")
+endif()
 
 add_library(litehtml STATIC ${LITEHTML_SOURCES})
 target_include_directories(litehtml PUBLIC libs/litehtml/include)
 target_link_libraries(litehtml PUBLIC gumbo)
+
+if(MSVC)
+    target_compile_options(litehtml PRIVATE /W3)
+endif()
 
 # Main application
 set(SOURCES

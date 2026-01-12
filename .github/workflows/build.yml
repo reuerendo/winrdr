@@ -19,10 +19,12 @@ jobs:
     
     - name: Download and build litehtml
       run: |
-        Invoke-WebRequest -Uri "https://github.com/litehtml/litehtml/archive/refs/tags/v0.9.tar.gz" -OutFile "litehtml.tar.gz"
-        tar -xzf litehtml.tar.gz
-        Move-Item litehtml-0.9 libs/litehtml
-        Remove-Item litehtml.tar.gz
+        Invoke-WebRequest -Uri "https://github.com/litehtml/litehtml/archive/refs/heads/master.zip" -OutFile "litehtml.zip"
+        Expand-Archive -Path "litehtml.zip" -DestinationPath "libs"
+        Move-Item libs/litehtml-master libs/litehtml
+        Remove-Item litehtml.zip
+        Write-Host "Litehtml structure:"
+        Get-ChildItem -Path libs/litehtml/src -Name
     
     - name: Download and build gumbo-parser
       run: |
