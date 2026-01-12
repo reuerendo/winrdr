@@ -4,25 +4,23 @@ project(EpubReader)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Глобальные настройки для UTF-8 и Windows
 if(WIN32)
-    add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX -DLITEHTML_UTF8)
+    add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX -DWIN32_LEAN_AND_MEAN)
     add_compile_options(/utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
 
-# Настройка litehtml
-# Важно: litehtml сам подключит gumbo, если использовать его CMake
+set(LITEHTML_UTF8 ON CACHE BOOL "Force UTF-8 strings in litehtml" FORCE)
 set(LITEHTML_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(LITEHTML_UTF8 ON CACHE BOOL "" FORCE)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/libs/litehtml/CMakeLists.txt")
     add_subdirectory(libs/litehtml EXCLUDE_FROM_ALL)
+    
+    target_compile_definitions(litehtml PUBLIC LITEHTML_UTF8)
 else()
-    message(FATAL_ERROR "litehtml not found in libs/litehtml. Please check build.yml or download it manually.")
+    message(FATAL_ERROR "litehtml not found in libs/litehtml. Please check build.yml")
 endif()
 
-# Основное приложение
 set(SOURCES
     src/main.cpp
     src/epub/epub_parser.cpp
