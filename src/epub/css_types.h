@@ -27,6 +27,9 @@ enum class CSSValueType {
     Color          // css_val_color
 };
 
+// Forward declare toPixels for use in inline methods
+int cssLengthToPixels(CSSValueType type, int value, int base_font_size, int parent_value);
+
 // Generic CSS values
 enum class CSSGenericValue {
     Auto,           // css_generic_auto
@@ -80,6 +83,7 @@ struct CSSLength {
         return CSSLength(CSSValueType::Color, static_cast<int>(rgb));
     }
     
+    // Forward declare - implementation in css_types.cpp
     int toPixels(int base_font_size = 16, int parent_value = 0) const;
 };
 
@@ -328,45 +332,5 @@ struct RuleData {
     int specificity;
     bool is_important;
 };
-
-// Convert CSSLength to pixels
-inline int CSSLength::toPixels(int base_font_size, int parent_value) const {
-    const int fixed_value = value; // already * 256
-    
-    switch (type) {
-        case CSSValueType::PX:
-            return fixed_value / 256;
-            
-        case CSSValueType::PT:
-            return (fixed_value * 4) / (3 * 256);
-            
-        case CSSValueType::IN:
-            return (fixed_value * 96) / 256;
-            
-        case CSSValueType::CM:
-            return (fixed_value * 96) / (254 * 10);
-            
-        case CSSValueType::MM:
-            return (fixed_value * 96) / (254 * 100);
-            
-        case CSSValueType::PC:
-            return (fixed_value * 16) / 256;
-            
-        case CSSValueType::EM:
-            return (fixed_value * base_font_size) / 256;
-            
-        case CSSValueType::REM:
-            return (fixed_value * 16) / 256;
-            
-        case CSSValueType::EX:
-            return (fixed_value * base_font_size) / (2 * 256);
-            
-        case CSSValueType::Percent:
-            return (fixed_value * parent_value) / (100 * 256);
-            
-        default:
-            return 0;
-    }
-}
 
 } // namespace epub
