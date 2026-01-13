@@ -62,7 +62,6 @@ set(SOURCES
     src/epub/css_processor.cpp
     src/epub/css_selector_matcher.cpp
     src/epub/css_property_applier.cpp
-	src/epub/css_debug_logger.cpp
     src/epub/toc_parser.cpp
     src/epub/reading_position.cpp
     src/render/page_renderer.cpp
@@ -79,7 +78,6 @@ set(HEADERS
     src/epub/css_processor.h
     src/epub/css_selector_matcher.h
     src/epub/css_property_applier.h
-	src/epub/css_debug_logger.h
     src/epub/toc_parser.h
     src/epub/reading_position.h
     src/render/page_renderer.h

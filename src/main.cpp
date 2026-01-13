@@ -6,7 +6,6 @@
 #include "epub/epub_parser.h"
 #include "epub/reading_position.h"
 #include "render/page_renderer.h"
-#include "epub/css_box_model_applier.h"
 #include "epub/css_types.h"
 #include "utils/logger.h"
 
