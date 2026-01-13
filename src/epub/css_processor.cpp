@@ -11,10 +11,17 @@
 
 namespace epub {
 
+// Weight constants for specificity (based on crengine)
+static constexpr int WEIGHT_SPECIFICITY_ID = 1 << 29;
+static constexpr int WEIGHT_SPECIFICITY_ATTRCLS = 1 << 24;
+static constexpr int WEIGHT_SPECIFICITY_ELEMENT = 1 << 19;
+static constexpr int WEIGHT_SELECTOR_ORDER = 1;
+
 CSSProcessor::CSSProcessor() 
     : selectors_(nullptr)
     , document_(nullptr)
     , debug_enabled_(false)
+    , selector_order_(0)
 {
     selectors_ = lxb_selectors_create();
     lxb_selectors_init(selectors_);
@@ -33,6 +40,7 @@ void CSSProcessor::clear() {
     inline_styles_.clear();
     loaded_stylesheets_.clear();
     debug_logger_.clear();
+    selector_order_ = 0;
 }
 
 void CSSProcessor::clearDocument() {
@@ -49,7 +57,7 @@ void CSSProcessor::addInlineStyle(lxb_dom_element_t* element, const std::string&
     parseInlineStyle(style_text, properties);
 }
 
-void CSSProcessor::parseInlineStyle(const std::string& style_text, 
+void CSSProcessor::parseInlineStyle(const std::string& style_text,
                                     std::unordered_map<std::string, PropertyValue>& properties) {
     const int inline_specificity = 1000;
     
@@ -65,10 +73,18 @@ void CSSProcessor::parseInlineStyle(const std::string& style_text,
         std::string prop_name = trim(declaration.substr(0, colon_pos));
         std::string prop_value = trim(declaration.substr(colon_pos + 1));
         
+        bool is_important = false;
+        size_t important_pos = prop_value.find("!important");
+        if (important_pos != std::string::npos) {
+            prop_value = trim(prop_value.substr(0, important_pos));
+            is_important = true;
+        }
+        
         if (!prop_name.empty() && !prop_value.empty()) {
             PropertyValue pv;
             pv.value = prop_value;
             pv.specificity = inline_specificity;
+            pv.is_important = is_important;
             properties[prop_name] = pv;
         }
     }
@@ -146,7 +162,10 @@ void CSSProcessor::parseSimpleCSS(const std::string& css) {
             
             RuleData rule;
             rule.selector = selector;
-            rule.specificity = selector_matcher_.calculateSpecificity(selector);
+            rule.specificity = selector_matcher_.calculateSpecificity(selector).calculate();
+            rule.specificity += selector_order_;
+            selector_order_ += WEIGHT_SELECTOR_ORDER;
+            rule.is_important = false;
             
             std::istringstream decl_stream(declarations_text);
             std::string declaration;
@@ -157,6 +176,12 @@ void CSSProcessor::parseSimpleCSS(const std::string& css) {
                 
                 std::string prop_name = trim(declaration.substr(0, colon_pos));
                 std::string prop_value = trim(declaration.substr(colon_pos + 1));
+                
+                if (prop_value.find("!important") != std::string::npos) {
+                    rule.is_important = true;
+                    size_t important_pos = prop_value.find("!important");
+                    prop_value = trim(prop_value.substr(0, important_pos));
+                }
                 
                 if (!prop_name.empty() && !prop_value.empty()) {
                     rule.properties[prop_name] = prop_value;
@@ -181,40 +206,50 @@ CSSComputedStyle CSSProcessor::computeStyle(lxb_dom_node_t* node) {
     
     lxb_dom_element_t* element = lxb_dom_interface_element(node);
     
-    std::unordered_map<std::string, PropertyValue> matched_properties;
+    lxb_dom_node_t* parent_node = lxb_dom_node_parent(node);
+    if (parent_node && parent_node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        CSSComputedStyle parent_style = computeStyle(parent_node);
+        style.inheritFrom(parent_style);
+    }
+    
+    std::vector<const RuleData*> matched_rules;
     std::vector<std::string> matched_selectors;
     
     for (const RuleData& rule : rules_) {
         if (selector_matcher_.matchesSelector(node, rule.selector)) {
+            matched_rules.push_back(&rule);
             if (debug_enabled_) {
                 matched_selectors.push_back(rule.selector);
             }
-            
-            for (const auto& prop_pair : rule.properties) {
-                const std::string& prop_name = prop_pair.first;
-                const std::string& prop_value = prop_pair.second;
-                
-                auto it = matched_properties.find(prop_name);
-                if (it == matched_properties.end() || it->second.specificity <= rule.specificity) {
-                    PropertyValue pv;
-                    pv.value = prop_value;
-                    pv.specificity = rule.specificity;
-                    matched_properties[prop_name] = pv;
-                }
+        }
+    }
+    
+    std::stable_sort(matched_rules.begin(), matched_rules.end(),
+        [](const RuleData* a, const RuleData* b) {
+            if (a->is_important != b->is_important) {
+                return !a->is_important;
             }
+            return a->specificity < b->specificity;
+        });
+    
+    for (const RuleData* rule : matched_rules) {
+        uint8_t importance = 0;
+        if (rule->is_important) {
+            importance = 1;
+        }
+        
+        for (const auto& prop_pair : rule->properties) {
+            property_applier_.applyProperty(prop_pair.first, prop_pair.second, style, importance);
         }
     }
     
     auto inline_it = inline_styles_.find(element);
     if (inline_it != inline_styles_.end()) {
         for (const auto& prop_pair : inline_it->second) {
-            matched_properties[prop_pair.first] = prop_pair.second;
+            uint8_t importance = prop_pair.second.is_important ? 2 : 1;
+            property_applier_.applyProperty(prop_pair.first, prop_pair.second.value, 
+                                          style, importance);
         }
-    }
-    
-    for (const auto& prop_pair : matched_properties) {
-        property_applier_.applyProperty(prop_pair.first, prop_pair.second.value, style);
-        box_model_applier_.applyProperty(prop_pair.first, prop_pair.second.value, style);
     }
     
     if (debug_enabled_) {
@@ -248,7 +283,7 @@ std::string CSSProcessor::trim(const std::string& str) {
 
 std::string CSSProcessor::toLowerCase(const std::string& str) {
     std::string result = str;
-    std::transform(result.begin(), result.end(), result.begin(), 
+    std::transform(result.begin(), result.end(), result.begin(),
                   [](unsigned char c) { return std::tolower(c); });
     return result;
 }
@@ -256,11 +291,28 @@ std::string CSSProcessor::toLowerCase(const std::string& str) {
 TextStyle CSSProcessor::convertToTextStyle(const CSSComputedStyle& css_style) {
     TextStyle style = TextStyle::Normal;
     
-    if (css_style.bold) style = style | TextStyle::Bold;
-    if (css_style.italic) style = style | TextStyle::Italic;
-    if (css_style.underline) style = style | TextStyle::Underline;
-    if (css_style.strikethrough) style = style | TextStyle::Strikethrough;
-    if (css_style.monospace) style = style | TextStyle::Monospace;
+    if (css_style.font_weight >= CSSFontWeight::Bold) {
+        style = style | TextStyle::Bold;
+    }
+    
+    if (css_style.font_style == CSSFontStyle::Italic || 
+        css_style.font_style == CSSFontStyle::Oblique) {
+        style = style | TextStyle::Italic;
+    }
+    
+    if (css_style.text_decoration == CSSTextDecoration::Underline) {
+        style = style | TextStyle::Underline;
+    }
+    
+    if (css_style.text_decoration == CSSTextDecoration::LineThrough) {
+        style = style | TextStyle::Strikethrough;
+    }
+    
+    if (css_style.font_family == CSSFontFamily::Monospace ||
+        css_style.font_name.find("mono") != std::string::npos ||
+        css_style.font_name.find("courier") != std::string::npos) {
+        style = style | TextStyle::Monospace;
+    }
     
     if (css_style.vertical_align == CSSVerticalAlign::Sub) {
         style = style | TextStyle::Subscript;
@@ -272,7 +324,18 @@ TextStyle CSSProcessor::convertToTextStyle(const CSSComputedStyle& css_style) {
 }
 
 TextAlign CSSProcessor::convertToTextAlign(const CSSComputedStyle& css_style) {
-    return css_style.text_align;
+    switch (css_style.text_align) {
+        case CSSTextAlign::Left:
+            return TextAlign::Left;
+        case CSSTextAlign::Right:
+            return TextAlign::Right;
+        case CSSTextAlign::Center:
+            return TextAlign::Center;
+        case CSSTextAlign::Justify:
+            return TextAlign::Justify;
+        default:
+            return TextAlign::Left;
+    }
 }
 
 } // namespace epub

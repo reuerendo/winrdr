@@ -1,8 +1,9 @@
-// CSS property application: handles text properties (font, text-decoration, etc.)
+// CSS property application with CREngine cascade logic
 #pragma once
 
 #include "css_types.h"
 #include <string>
+#include <vector>
 
 namespace epub {
 
@@ -11,25 +12,11 @@ public:
     CSSPropertyApplier() = default;
     ~CSSPropertyApplier() = default;
     
-    void applyProperty(const std::string& name, const std::string& value, CSSComputedStyle& style);
+    void applyProperty(const std::string& name, const std::string& value, 
+                      CSSComputedStyle& style, uint8_t importance = 0);
     
 private:
-    void applyFontWeight(const std::string& value, CSSComputedStyle& style);
-    void applyFontStyle(const std::string& value, CSSComputedStyle& style);
-    void applyTextDecoration(const std::string& value, CSSComputedStyle& style);
-    void applyFontVariant(const std::string& value, CSSComputedStyle& style);
-    void applyFontFamily(const std::string& value, CSSComputedStyle& style);
-    void applyFontSize(const std::string& value, CSSComputedStyle& style);
-    void applyLineHeight(const std::string& value, CSSComputedStyle& style);
-    void applyLetterSpacing(const std::string& value, CSSComputedStyle& style);
-    void applyTextAlign(const std::string& value, CSSComputedStyle& style);
-    void applyDisplay(const std::string& value, CSSComputedStyle& style);
-    void applyVerticalAlign(const std::string& value, CSSComputedStyle& style);
-    void applyTextTransform(const std::string& value, CSSComputedStyle& style);
-    void applyWhiteSpace(const std::string& value, CSSComputedStyle& style);
-    
-    int parseLength(const std::string& value);
-    float parseFloat(const std::string& value);
+    std::vector<CSSLength> parseShorthand(const std::string& value);
     std::string trim(const std::string& str);
     std::string toLowerCase(const std::string& str);
 };

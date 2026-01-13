@@ -1,10 +1,9 @@
-// Main CSS processor: coordinates parsing, selector matching, and property application
+// Main CSS processor with CREngine-style cascade
 #pragma once
 
 #include "css_types.h"
 #include "css_selector_matcher.h"
 #include "css_property_applier.h"
-#include "css_box_model_applier.h"
 #include "css_debug_logger.h"
 #include "formatted_text.h"
 #include <string>
@@ -48,10 +47,8 @@ public:
 
 private:
     void parseSimpleCSS(const std::string& css);
-    void parseInlineStyle(const std::string& style_text, 
+    void parseInlineStyle(const std::string& style_text,
                          std::unordered_map<std::string, PropertyValue>& properties);
-    
-    void traverseAndDebug(lxb_dom_node_t* node, int depth);
     
     std::string trim(const std::string& str);
     std::string toLowerCase(const std::string& str);
@@ -65,10 +62,10 @@ private:
     
     CSSSelectorMatcher selector_matcher_;
     CSSPropertyApplier property_applier_;
-    CSSBoxModelApplier box_model_applier_;
     CSSDebugLogger debug_logger_;
     
     bool debug_enabled_;
+    int selector_order_;
 };
 
 } // namespace epub

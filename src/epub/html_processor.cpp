@@ -124,10 +124,17 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             lxb_dom_node_t* parent = lxb_dom_node_parent(node);
             if (parent && parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
                 CSSComputedStyle parent_css = css_processor_.computeStyle(parent);
-                elem.css_font_size = parent_css.font_size;
-                elem.css_line_height = parent_css.line_height;
-                elem.css_letter_spacing = parent_css.letter_spacing;
-                elem.css_small_caps = parent_css.small_caps;
+                
+                int base_font_size = 16;
+                elem.css_font_size = parent_css.font_size.toPixels(base_font_size) / static_cast<float>(base_font_size);
+                
+                if (parent_css.line_height.type == CSSValueType::Unspecified) {
+                    elem.css_line_height = 1.2f;
+                } else {
+                    elem.css_line_height = parent_css.line_height.toPixels(base_font_size) / static_cast<float>(base_font_size);
+                }
+                
+                elem.css_letter_spacing = parent_css.letter_spacing.toPixels(base_font_size) / static_cast<float>(base_font_size);
             }
             
             output.push_back(elem);
@@ -167,8 +174,8 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         if (tag_name == "hr") {
             TextElement elem;
             elem.type = ElementType::HorizontalRule;
-            elem.css_margin_top = css_style.margin_top;
-            elem.css_margin_bottom = css_style.margin_bottom;
+            elem.css_margin_top = css_style.margin[0].toPixels(16);
+            elem.css_margin_bottom = css_style.margin[2].toPixels(16);
             output.push_back(elem);
             return;
         }
@@ -181,10 +188,10 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
                     TextElement elem;
                     elem.type = ElementType::Image;
                     elem.image_id = src;
-                    elem.css_margin_top = css_style.margin_top;
-                    elem.css_margin_bottom = css_style.margin_bottom;
-                    elem.css_margin_left = css_style.margin_left;
-                    elem.css_margin_right = css_style.margin_right;
+                    elem.css_margin_top = css_style.margin[0].toPixels(16);
+                    elem.css_margin_bottom = css_style.margin[2].toPixels(16);
+                    elem.css_margin_left = css_style.margin[3].toPixels(16);
+                    elem.css_margin_right = css_style.margin[1].toPixels(16);
                     output.push_back(elem);
                 }
             }
@@ -214,6 +221,7 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
         }
         
         bool should_add_block_spacing = false;
+        int base_font_size = 16;
         
         if (tag_name == "p") {
             new_block_type = ElementType::Paragraph;
@@ -276,21 +284,21 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             new_style = new_style | TextStyle::Underline;
         }
         
-        if (should_add_block_spacing && (css_style.margin_top > 0 || css_style.padding_top > 0)) {
+        if (should_add_block_spacing && 
+            (css_style.margin[0].toPixels(base_font_size) > 0 || 
+             css_style.padding[0].toPixels(base_font_size) > 0)) {
             TextElement spacing_elem;
             spacing_elem.type = ElementType::Text;
             spacing_elem.content = L"";
             spacing_elem.style = TextStyle::Normal;
             spacing_elem.align = new_align;
-            spacing_elem.css_margin_top = css_style.margin_top;
-            spacing_elem.css_padding_top = css_style.padding_top;
-            spacing_elem.css_margin_left = css_style.margin_left;
-            spacing_elem.css_padding_left = css_style.padding_left;
-            spacing_elem.css_text_indent = css_style.text_indent;
+            spacing_elem.css_margin_top = css_style.margin[0].toPixels(base_font_size);
+            spacing_elem.css_padding_top = css_style.padding[0].toPixels(base_font_size);
+            spacing_elem.css_margin_left = css_style.margin[3].toPixels(base_font_size);
+            spacing_elem.css_padding_left = css_style.padding[3].toPixels(base_font_size);
+            spacing_elem.css_text_indent = css_style.text_indent.toPixels(base_font_size);
             output.push_back(spacing_elem);
         }
-        
-        size_t content_start = output.size();
         
         lxb_dom_node_t* child = lxb_dom_node_first_child(node);
         while (child) {
@@ -298,14 +306,16 @@ void HTMLProcessor::processNode(lxb_dom_node_t* node, FormattedContent& output,
             child = lxb_dom_node_next(child);
         }
         
-        if (should_add_block_spacing && (css_style.margin_bottom > 0 || css_style.padding_bottom > 0)) {
+        if (should_add_block_spacing && 
+            (css_style.margin[2].toPixels(base_font_size) > 0 || 
+             css_style.padding[2].toPixels(base_font_size) > 0)) {
             TextElement spacing_elem;
             spacing_elem.type = ElementType::Text;
             spacing_elem.content = L"";
             spacing_elem.style = TextStyle::Normal;
             spacing_elem.align = new_align;
-            spacing_elem.css_margin_bottom = css_style.margin_bottom;
-            spacing_elem.css_padding_bottom = css_style.padding_bottom;
+            spacing_elem.css_margin_bottom = css_style.margin[2].toPixels(base_font_size);
+            spacing_elem.css_padding_bottom = css_style.padding[2].toPixels(base_font_size);
             output.push_back(spacing_elem);
         }
         
