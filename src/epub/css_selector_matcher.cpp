@@ -8,42 +8,39 @@
 
 namespace epub {
 
-int CSSSelectorMatcher::calculateSpecificity(const std::string& selector) {
-    int specificity = 0;
-    
-    size_t id_count = 0;
-    size_t class_count = 0;
-    size_t element_count = 0;
-    
+SelectorSpecificity CSSSelectorMatcher::calculateSpecificity(const std::string& selector) {
+    SelectorSpecificity spec;
+    countSelectorParts(selector, spec);
+    return spec;
+}
+
+void CSSSelectorMatcher::countSelectorParts(const std::string& selector, SelectorSpecificity& spec) {
     bool in_brackets = false;
     bool in_pseudo = false;
     
     for (size_t i = 0; i < selector.length(); i++) {
         if (selector[i] == '[') {
             in_brackets = true;
-            class_count++;
+            spec.class_count++;
         } else if (selector[i] == ']') {
             in_brackets = false;
         } else if (selector[i] == ':' && i + 1 < selector.length() && selector[i+1] != ':') {
             in_pseudo = true;
-            class_count++;
-        } else if (in_pseudo && (selector[i] == ' ' || selector[i] == '>' || selector[i] == '+' || selector[i] == '~')) {
+            spec.class_count++;
+        } else if (in_pseudo && (selector[i] == ' ' || selector[i] == '>' || 
+                   selector[i] == '+' || selector[i] == '~')) {
             in_pseudo = false;
         } else if (!in_brackets && !in_pseudo) {
             if (selector[i] == '#') {
-                id_count++;
+                spec.id_count++;
             } else if (selector[i] == '.') {
-                class_count++;
+                spec.class_count++;
             } else if (std::isalpha(selector[i]) && 
                        (i == 0 || !std::isalnum(selector[i-1]))) {
-                element_count++;
+                spec.element_count++;
             }
         }
     }
-    
-    specificity = (id_count * 100) + (class_count * 10) + element_count;
-    
-    return specificity;
 }
 
 bool CSSSelectorMatcher::matchesSelector(lxb_dom_node_t* node, const std::string& selector) {
